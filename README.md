@@ -36,7 +36,7 @@ An AI auto-reply bot and CLI for KakaoTalk on Windows — no Android emulator ne
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude` 명령, 로그인된 상태) — 자동 답장 봇에만 필요
 
 ```powershell
-git clone https://github.com/<계정>/kakao-autoreply-win.git
+git clone https://github.com/Puro-33/kakao-autoreply-win.git
 cd kakao-autoreply-win
 py -3.12 -m pip install -r requirements.txt
 ```
