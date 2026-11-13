@@ -1,0 +1,7 @@
+# 필수: PC 카톡 DB 복호화(kakao_native), 사진 처리(bot.py)
+cryptography>=42
+pillow>=10
+# 선택: ingest_sites.py (학교 LMS 등 읽기) — 필요할 때만
+# playwright>=1.40
+# 테스트
+pytest>=8

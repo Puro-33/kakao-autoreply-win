@@ -1,0 +1,75 @@
+# ─ 개인 설정·페르소나 (example 템플릿만 공개) ─
+config.json
+dm_categories.json
+profile.md
+profile.md.bak
+profile.slim.md
+profile.slim.md.*
+reply_policy.md
+corrections.md
+
+# ─ 개인 데이터(나와의 채팅 일기 원문 등) ─
+data/private/
+
+# ─ 런타임 상태·캐시 ─
+state.json
+todo.json
+*.tmp
+*.bak
+*.lock
+logs/
+photos/
+calendar/
+downloads/
+claude-cwd/
+__pycache__/
+*.pyc
+
+# ─ 비밀·자격증명 (브라우저 프로필, Playwright storage_state, 쿠키, 토큰) ─
+browser-profile/
+storage_state*.json
+*cookie*
+*Cookies*
+.env
+.env.*
+*.pem
+*.key
+
+# ─ 학습 데이터 (말투 프로필, 온톨로지 사실, 피드백 원장·학습 규칙, 방 프로필, 평가 결과, 사이트 저장본) ─
+feedback/
+ontology/*
+!ontology/schema.json
+
+# ─ 공개하지 않는 문서·도구 ─
+research/business-case.md
+tools/
+*.apk
+*.exe
+.export_public_marker
+
+# ─ PC 카톡 네이티브: 키·DB·개인 작업 기록 ─
+kakao_native/keystore_v2.py
+kakao_native/.local/
+*.dpapi
+*.edb
+*.edb-wal
+*.edb-shm
+*.db
+*.sqlite
+.pytest_cache/
+
+# ─ 백업·로그·가상환경(검수 때 보탬) ─
+config.json.*
+dm_categories.json.*
+state.json.*
+todo.json.*
+reply_policy.md.*
+*.bak*
+backup-*/
+*.log
+data/
+.venv/
+venv/
+*.dat
+keys.dpapi
+rootkey.dpapi

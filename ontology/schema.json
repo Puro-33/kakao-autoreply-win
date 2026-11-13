@@ -1,0 +1,157 @@
+{
+ "version": "0.1",
+ "_note": "온톨로지 v0 스키마. ontology_store.py가 쓰기마다 이 파일로 검사한다. 로드 실패나 코드 상수와 불일치면 '카드 없음 모드'(온톨로지 미사용).",
+ "classes": [
+  "Me",
+  "Contact",
+  "Group",
+  "OpenItem",
+  "Commitment"
+ ],
+ "group_kinds": [
+  "org",
+  "program",
+  "project",
+  "community"
+ ],
+ "predicates": {
+  "Me": [
+   "school",
+   "status",
+   "major",
+   "interest",
+   "self_skill",
+   "phrase",
+   "fixed_schedule",
+   "role_in",
+   "course",
+   "program",
+   "activity",
+   "notice"
+  ],
+  "Contact": [
+   "relation_label",
+   "my_role",
+   "their_role",
+   "honorific_mine",
+   "address_term",
+   "member_of",
+   "last_thread"
+  ],
+  "Group": [
+   "name",
+   "my_role",
+   "status"
+  ]
+ },
+ "enums": {
+  "their_role": [
+   "교수",
+   "선배",
+   "동기",
+   "후배",
+   "멘티",
+   "멘토",
+   "팀원",
+   "운영진",
+   "가족",
+   "친구",
+   "외부",
+   "기타"
+  ],
+  "honorific_mine": [
+   "합쇼체",
+   "해요체",
+   "반말",
+   "혼용"
+  ]
+ },
+ "identity_predicates": [
+  "school",
+  "status",
+  "major"
+ ],
+ "source_types": {
+  "owner": 1.0,
+  "iris_structural": 0.9,
+  "chat_self": 0.8,
+  "browser_summary": 0.6,
+  "memory": 0.5,
+  "pc_folder": 0.5,
+  "chat_other": 0.6,
+  "profile_md": 0.5,
+  "dm_categories": 0.5,
+  "site": 0.85
+ },
+ "contact_active_sources": [
+  "owner",
+  "iris_structural",
+  "chat_self",
+  "chat_other"
+ ],
+ "audiences": [
+  "any",
+  "group",
+  "contact",
+  "owner"
+ ],
+ "category_ceiling": {
+  "가족": "owner",
+  "친구": "contact",
+  "학교": "group",
+  "교수": "group",
+  "업무·외부": "contact",
+  "거래·서비스": "contact",
+  "기타": "contact",
+  "미분류": "contact"
+ },
+ "topic_lexicon": [
+  "입시",
+  "입시학원",
+  "성적",
+  "학점",
+  "평점",
+  "병역",
+  "군대",
+  "입대",
+  "예비군",
+  "대출",
+  "송금",
+  "입금",
+  "계좌",
+  "결제",
+  "환불",
+  "건강",
+  "병원",
+  "진단",
+  "가족 일정"
+ ],
+ "never_store_patterns": [
+  "01[016789][-.\\s]?\\d{3,4}[-.\\s]?\\d{4}",
+  "(?<!\\d)0\\d{1,2}[-.\\s]?\\d{3,4}[-.\\s]?\\d{4}(?!\\d)",
+  "(?<![\\d-])(?=(?:\\d[-\\s]?){10,})(?:\\d{2,6}[-\\s]){2,5}\\d{2,8}(?!\\d)",
+  "(?<!\\d)\\d{10,16}(?!\\d)",
+  "(?<!\\d)\\d{8}(?!\\d)",
+  "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+  "[가-힣]+(?:시|도)\\s?[가-힣]+(?:구|군|시)\\s?[가-힣0-9]+(?:로|길|동)\\s?\\d+",
+  "\\d+\\s?동\\s?\\d+\\s?호"
+ ],
+ "limits": {
+  "value_chars": 120,
+  "relation_label_chars": 60,
+  "card_chars": 900,
+  "me_core_chars": 350
+ },
+ "retention_days": {
+  "audit": 30,
+  "journal": 180,
+  "retracted": 90,
+  "bak": 7
+ },
+ "dormant_days": 180,
+ "me_group_categories": [
+  "학교",
+  "교수",
+  "친구"
+ ]
+}
