@@ -90,7 +90,6 @@
   "site_ingest_aside_respect_robots": false,
   "open_chat_proxy_rooms": [],
   "proxy_context_messages": 15,
-  "voice_mode": true,
   "split_lines": true,
   "proxy_register": "해요체",
   "proxy_max_per_hour": 6,
@@ -102,7 +101,6 @@
     45
   ],
   "proxy_skip_if_replies": 3,
-  "dm_rhythm_rooms": [],
   "_auto_reply_rooms_note": "1:1이 아닌데 갠톡처럼 자동응답할 단톡 chat_id 목록. 갠톡과 같은 판정·보류를 쓰고, 보류는 조용히 할 일로만 남긴다",
   "calendar_mode": false,
   "calendar_sync_min": 30,

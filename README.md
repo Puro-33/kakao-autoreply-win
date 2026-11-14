@@ -14,7 +14,7 @@ An AI auto-reply bot and CLI for KakaoTalk on Windows — no Android emulator ne
 
 ## 개요
 
-받은 카톡에 **주인의 말투로 자동 답장**하는 봇입니다. 사람이 버튼을 누르지 않아도 보내기 때문에,
+받은 카톡에 **자동으로 답장**하는 봇입니다. 사람이 버튼을 누르지 않아도 보내기 때문에,
 노력의 대부분은 **무엇을 보내지 않을지를 코드가 정하는 데** 들어가 있습니다.
 돈·약속·개인정보·결정이 걸린 메시지는 AI가 아니라 코드가 막고(보류) 주인의 '할 일'로 넘깁니다.
 
@@ -119,17 +119,17 @@ powershell -ExecutionPolicy Bypass -File start_native.ps1       # 꺼지면 다�
  PC 카카오톡 (본인 계정 로그인)
    │  로컬 DB (%LOCALAPPDATA%\Kakao\KakaoTalk\users\…\*.edb, SQLCipher 암호화)
    ▼
- kakao_native/  ── 메모리에서 DB 키 찾기(읽기 전용) → 복호화(메모리·임시파일) → 방·사람·메시지
+ kakao_native/  ── 메모리에서 DB 키 찾기(읽기 전용) → 복호화(메모리에서 열기, 바뀐 방만) → 방·사람·메시지
    ▼
  iris_native.py (:3001, Iris 호환 HTTP)  ── 새 메시지 폴링 → 웹훅
    ▼                                         ▲ /reply (받은 메시지에 대한 답장만)
  bot.py (:5000)                              │
    1. 방 종류·호출어·등록 방·무시 목록 확인
    2. 코드 관문: 약속·돈·결정·비공개 주제 → LLM 없이 보류
-   3. 프롬프트 = 답장 지침 + 공개 범위별 프로필 + 높임 + 말투 + 기록
+   3. 프롬프트 = 답장 지침 + 공개 범위별 프로필 + 높임 + 기록
    4. claude -p → JSON(범주·위험 표시·확신도·초안)
    5. 위험 표시/확신<0.6 → 무전송 또는 짧은 미룸 + 할 일
-   6. 출력 검사: 비공개 어휘·다른 상대 이름·AI 티 → 다시 쓰기/보류
+   6. 출력 검사: 비공개 어휘·다른 상대 이름 → 보류, 높임 불일치 → 한 번 고쳐 쓰기/보류
    7. 쿨다운·시간당 상한·랜덤 지연 뒤 /reply
    ▼
  pc_kakao_send.py ── PC 카톡 창 찾기/열기 → 입력칸에 글 → 전송 버튼 → 카톡 DB로 전달 확인
@@ -155,7 +155,7 @@ Iris 설치는 Iris 저장소 안내를 따르세요(이 저장소에는 Iris가
 | `auto_reply_rooms` | 1:1이 아니어도 갠톡처럼 답할 단톡 chat_id |
 | `dm_min_confidence`, `dm_debounce_sec`, `dm_max_reply_chars` | 보류 기준 확신도, 연달아 온 메시지 묶기, 답 길이 |
 | `reply_delay_sec`, `room_cooldown_sec`, `max_replies_per_hour` | 지연과 상한 |
-| `ontology_mode`, `voice_mode`, `dm_lookup` | 상대 카드, 내 말투, 내 카톡에서 근거 찾기 |
+| `ontology_mode`, `dm_lookup` | 상대 카드, 내 카톡에서 근거 찾기 |
 | `briefing_enabled` | 예약 브리핑(기본 꺼짐 — 봇은 먼저 보내지 않는다) |
 | `calendar_mode` | 캘린더 연동(기본 꺼짐) |
 
@@ -199,7 +199,7 @@ Iris 설치는 Iris 저장소 안내를 따르세요(이 저장소에는 Iris가
 - 카카오톡 업데이트로 DB 형식·창 구조가 바뀌면 깨질 수 있습니다. 확인한 창 구조는 2026년 하반기 PC 카카오톡 기준입니다.
 - 스레드 답장, 사진 보내기는 PC 창 경로로 하지 않습니다(받기만).
 - 프롬프트는 한국어 전용, 시간은 KST(UTC+9) 고정, Windows 전용입니다.
-- 말투 프로필·온톨로지는 주인의 실제 대화로 만들어지므로 처음에는 비어 있습니다.
+- 온톨로지(상대 카드)는 주인의 실제 대화로 만들어지므로 처음에는 비어 있습니다. 말투 학습 기능은 없습니다(0.2.0에서 뺌).
 - 다른 사람의 메시지를 외부 LLM(Claude)에 보냅니다. 상대의 개인정보에 미칠 영향을 고려하세요.
 
 ## 면책
@@ -230,7 +230,7 @@ Iris 설치는 Iris 저장소 안내를 따르세요(이 저장소에는 Iris가
 **kakao-autoreply-win** is an unofficial, personal-use KakaoTalk auto-reply bot and CLI for **Windows**. It reads the
 signed-in user's own local KakaoTalk PC databases (SQLCipher 4; keys are recovered read-only from the user's own running
 `KakaoTalk.exe` and cached with Windows DPAPI), exposes them through an Iris-compatible local HTTP shim, lets `bot.py`
-draft replies in the owner's voice with the Claude Code CLI behind code-enforced hold rules (no unsolicited messages,
+draft replies with the Claude Code CLI behind code-enforced hold rules (no unsolicited messages,
 money/appointments/personal data/decisions are held for the owner), and sends by typing into the KakaoTalk PC window,
 then confirms delivery in the local database. No Android emulator is required; the LDPlayer + Iris route remains optional.
 `kakaowin.py` offers `status`, `chats`, `messages`, `scan`, `send` (dry-run unless `--yes`; `--me` for self-chat), `serve` and `bot`.

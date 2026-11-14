@@ -35,7 +35,7 @@ storage_state*.json
 *.pem
 *.key
 
-# ─ 학습 데이터 (말투 프로필, 온톨로지 사실, 피드백 원장·학습 규칙, 방 프로필, 평가 결과, 사이트 저장본) ─
+# ─ 학습 데이터 (온톨로지 사실, 피드백 원장·학습 규칙, 방 프로필, 평가 결과, 사이트 저장본) ─
 feedback/
 ontology/*
 !ontology/schema.json

@@ -267,3 +267,129 @@ def test_cli_send_refuses_without_yes_and_under_lock(fake_acc, monkeypatch, caps
     assert len(calls) == 1
     assert "전송 잠금" in capsys.readouterr().out
     assert K.main(["send", "x" * 10, "y" * 501]) == 1                         # 길이 제한
+
+
+# ───────────────────────── 읽기 경로: 찌꺼기 파일 없음 · 바뀐 방만 읽기 ─────────────────────────
+def _wal_image(path: Path) -> bytes:
+    """카카오톡 DB 처럼 WAL 방식인 평문 SQLite 이미지(머리말 18·19번째 바이트가 2)."""
+    c = sqlite3.connect(path)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("CREATE TABLE chatLogs(logId, message)")
+    c.executemany("INSERT INTO chatLogs VALUES(?,?)", [(1, "하나"), (2, "둘")])
+    c.commit()
+    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    c.close()
+    img = path.read_bytes()
+    assert img[18] == 2 and img[19] == 2
+    return img
+
+
+def test_connect_plain_opens_wal_image_in_memory(tmp_path, monkeypatch):
+    img = _wal_image(tmp_path / "src.db")
+
+    def no_temp(*a, **k):
+        raise AssertionError("임시 파일을 만들면 안 된다")
+
+    monkeypatch.setattr(A.tempfile, "mkstemp", no_temp)
+    conn, tmp = A._connect_plain(img)
+    try:
+        assert tmp == ""
+        assert [r["message"] for r in conn.execute("SELECT message FROM chatLogs ORDER BY logId")] == ["하나", "둘"]
+    finally:
+        conn.close()
+
+
+def test_open_decrypted_leaves_no_files(tmp_path, monkeypatch):
+    """메모리로 열 때도, 임시 파일로 물러설 때도 블록이 끝나면 임시 폴더에 아무것도 남지 않는다(.db·-wal·-shm)."""
+    src = tmp_path / "chatLogs_1.edb"
+    _wal_image(src)
+    tdir = tmp_path / "tmp"
+    tdir.mkdir()
+    monkeypatch.setattr(A.tempfile, "tempdir", str(tdir))
+    monkeypatch.setattr(A, "decrypt_database", lambda enc, key, params: enc)   # 합성 평문을 그대로 쓴다
+
+    with A.open_decrypted(str(src), b"k" * 32, A.SQLCIPHER4_DEFAULTS) as conn:
+        assert conn.execute("SELECT count(*) FROM chatLogs").fetchone()[0] == 2
+        assert list(tdir.iterdir()) == []                                       # 메모리 경로: 파일을 안 만든다
+    assert list(tdir.iterdir()) == []
+
+    real = sqlite3.connect
+
+    def no_memory(target, *a, **k):
+        if target == ":memory:":
+            raise sqlite3.OperationalError("메모리 DB 못 씀(시험)")
+        return real(target, *a, **k)
+
+    monkeypatch.setattr(A.sqlite3, "connect", no_memory)
+    with A.open_decrypted(str(src), b"k" * 32, A.SQLCIPHER4_DEFAULTS) as conn:
+        assert conn.execute("SELECT count(*) FROM chatLogs").fetchone()[0] == 2
+        assert any(p.name.startswith("kknat_") for p in tdir.iterdir())         # 임시 파일 경로를 실제로 탔다
+    assert list(tdir.iterdir()) == []
+
+
+def _counting(acct):
+    calls = []
+    real = acct.read_since
+
+    def read_since(cid, since=0):
+        calls.append(cid)
+        return real(cid, since)
+
+    acct.read_since = read_since
+    return calls
+
+
+def _add(fake_acc, cid, logid, text):
+    c = sqlite3.connect(fake_acc / "chat_data" / f"chatLogs_{cid}.edb")
+    c.execute("INSERT INTO chatLogs VALUES(?, ?, 1, ?, '', ?, 0, 0)", (logid, FRIEND, text, NOW + logid))
+    c.commit()
+    c.close()
+
+
+def test_poll_reads_only_changed_rooms(fake_acc):
+    import iris_native as IN
+    a = _acct(fake_acc)
+    ni = IN.NativeIris(a, verbose=lambda *x: None)
+    calls = _counting(a)
+    assert ni.poll() == [] and sorted(calls) == ["11", "22", "33"]   # 첫 확인: 방마다 한 번
+    calls.clear()
+    assert ni.poll() == [] and ni.poll() == [] and calls == []        # 그대로면 열지 않는다
+    _add(fake_acc, "11", 4, "새 글")
+    ev = ni.poll()
+    assert [e["msg"] for e in ev] == ["새 글"] and calls == ["11"]    # 바뀐 방만
+    calls.clear()
+    assert ni.poll() == [] and calls == []
+    (fake_acc / "chat_data" / "chatLogs_22.edb-wal").write_bytes(b"\0" * 64)   # -wal 만 바뀌어도 다시 읽는다
+    assert ni.poll() == [] and calls == ["22"]
+    calls.clear()
+    assert ni.poll() == [] and calls == []
+
+
+def test_poll_retries_room_that_failed_to_open(fake_acc):
+    import iris_native as IN
+    a = _acct(fake_acc)
+    ni = IN.NativeIris(a, verbose=lambda *x: None)
+    assert ni.poll() == []
+    _add(fake_acc, "11", 4, "놓치면 안 되는 글")
+    real, fail = a.read_since, [True]
+
+    def flaky(cid, since=0):
+        if cid == "11" and fail:
+            fail.clear()
+            return None                      # 카톡이 쓰는 중이라 못 열었다
+        return real(cid, since)
+
+    a.read_since = flaky
+    assert ni.poll() == []                   # 못 읽은 것을 '읽음'으로 치지 않는다
+    ev = ni.poll()                           # 파일은 그대로지만 다시 읽어서 전달한다
+    assert [e["msg"] for e in ev] == ["놓치면 안 되는 글"]
+    assert ni.poll() == []                   # 두 번 전달하지 않는다
+
+
+def test_read_since_none_when_unreadable(fake_acc):
+    a = _acct(fake_acc, missing={"chat_data\\chatLogs_22.edb"})
+    assert a.read_since("22") is None and a.read_since("999") is None
+    assert [r["logId"] for r in a.read_since("11", 1)] == [2, 3]
+    assert a.read_since("11", 3) == []
+    sig = a.signature("11")
+    assert sig[0] is not None and sig[1] is None and a.signature("999") == (None, None)

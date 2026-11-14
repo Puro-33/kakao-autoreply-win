@@ -296,7 +296,9 @@ def make_keys(acc: str, mode: str = "auto", log=print):
 @contextlib.contextmanager
 def open_decrypted(enc_path: str, key: bytes, params: SqlCipher4Params):
     """암호화 .edb 를 복호화해 읽기 전용 sqlite 연결로 연다. 최근 글이 있는 -wal 도 덮어쓴다.
-    평문은 임시 파일에 잠깐 두고 블록이 끝나면 지운다."""
+    평문은 디스크에 쓰지 않고 메모리에서 연다(sqlite3 deserialize, Python 3.11+).
+    예전에는 임시 .db 파일로 열었는데, 카카오톡 DB 가 WAL 방식이라 SQLite 가 그 옆에 -wal/-shm 을 만들고 우리는 .db 만 지워서
+    새 메시지를 확인할 때마다 찌꺼기 파일이 두 개씩 남았다(실제로 임시 폴더에 150만 개가 쌓여 디스크가 가득 찼다)."""
     enc = open(enc_path, "rb").read()
     plain = decrypt_database(enc, key, params)
     try:
@@ -305,18 +307,51 @@ def open_decrypted(enc_path: str, key: bytes, params: SqlCipher4Params):
         wal = b""
     if len(wal) > 32:
         plain, _n = apply_wal(plain, enc, wal, key, params)
+    conn, tmp = _connect_plain(plain)
+    try:
+        yield conn
+    finally:
+        conn.close()
+        for p in ((tmp, tmp + "-wal", tmp + "-shm") if tmp else ()):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def _connect_plain(plain: bytes) -> tuple[sqlite3.Connection, str]:
+    """복호화한 SQLite 이미지 → (연결, 임시 파일 경로 또는 ""). 메모리에서 여는 것이 기본이고, 안 되면 임시 파일로 연다.
+    메모리 DB 는 WAL 을 쓸 수 없어서 머리말의 읽기·쓰기 판(18·19번째 바이트)이 2(WAL)면 1로 바꿔 연다
+    (WAL 의 커밋된 내용은 apply_wal 이 이미 본문에 덮어썼다)."""
+    try:
+        img = bytearray(plain)
+        if len(img) > 20 and (img[18] == 2 or img[19] == 2):
+            img[18] = img[19] = 1
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.deserialize(bytes(img))
+            conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        except Exception:
+            conn.close()
+            raise
+        conn.row_factory = sqlite3.Row
+        return conn, ""
+    except Exception:  # noqa: BLE001  deserialize 가 없는 파이썬이거나 이미지가 메모리에서 안 열림
+        pass
     fd, tmp = tempfile.mkstemp(suffix=".db", prefix="kknat_")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(plain)
         conn = sqlite3.connect(f"file:{tmp}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-        finally:
-            conn.close()
-    finally:
-        os.unlink(tmp)
+    except Exception:
+        for p in (tmp, tmp + "-wal", tmp + "-shm"):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        raise
+    conn.row_factory = sqlite3.Row
+    return conn, tmp
 
 
 def rows(conn: sqlite3.Connection | None, sql: str, bind=()) -> list[sqlite3.Row]:
@@ -442,6 +477,30 @@ class Account:
         if limit:
             sql += f" LIMIT {int(limit)}"
         return self.query(self.chat_relpath(chat_id), sql, (since_logid,))
+
+    def read_since(self, chat_id: str, since_logid: int = 0) -> list[sqlite3.Row] | None:
+        """raw_messages 와 같되, DB 를 열지 못했으면 None 을 돌려준다(새 글이 없는 빈 목록과 구분: 다음에 다시 읽어야 한다)."""
+        sql = ("SELECT logId, authorId, type, message, attachement, sendAt, COALESCE(threadId,0) AS threadId, "
+               "COALESCE(scope,0) AS scope FROM chatLogs WHERE logId > ? ORDER BY logId ASC")
+        with self.db(self.chat_relpath(chat_id)) as conn:
+            if conn is None:
+                return None
+            try:
+                return list(conn.execute(sql, (since_logid,)))
+            except sqlite3.DatabaseError:
+                return None
+
+    def signature(self, chat_id: str) -> tuple:
+        """방 DB 파일(.edb 와 -wal)의 (수정 시각, 크기). 둘 다 그대로면 새 글이 없다."""
+        path = os.path.join(self.acc, self.chat_relpath(chat_id))
+        out = []
+        for p in (path, path + "-wal"):
+            try:
+                st = os.stat(p)
+                out.append((st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append(None)
+        return tuple(out)
 
     def messages(self, room: dict, limit: int = 50, since: int = 0) -> list[dict]:
         """최근 limit개(시각 오름차순): {log_id, at, mine, sender, text}."""

@@ -45,9 +45,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ontology_card as OC  # noqa: E402  (카드·관문·출력 검사: 발신 코드 없음)
-import style_profile as SP
+import register as REG  # noqa: E402  (높임 판별·불일치 검사: 말끝만 본다, 학습·저장 없음)
 import calendar_sync as CAL  # noqa: E402  (구글 캘린더 바쁨/빔)
-import voice_corpus as VC  # noqa: E402  (OWNER이 AI 채팅·받아쓰기에 직접 친 문장 리듬)
 import diary_loop as DL  # noqa: E402  (나와의 채팅 질문·일기 루프: 문장·파일만, 발신 코드 없음)
 import feedback as FB  # noqa: E402  (원트랙 피드백 원장·학습 규칙: 발신 코드 없음)
 import notify as NT  # noqa: E402  (PC 토스트 알림만: 카톡 발신 코드 없음)
@@ -960,11 +959,8 @@ def dm_system_prompt() -> str:
 
 
 def dm_profile_text() -> str:
-    """업무 프로필에서 '답장 말투' 절(### 4))은 뺀다 — 말투는 [말투 기준](상대별 통계)만 정한다."""
-    txt = load_text(PROFILE_FILE)
-    if txt and CFG.get("voice_mode", True):
-        txt = re.sub(r"\n## 4\)[^\n]*\n.*?(?=\n## |\Z)", "\n", txt, flags=re.S)
-    return txt
+    """업무 프로필 본문(사실 근거)."""
+    return load_text(PROFILE_FILE)
 
 
 _PS_CACHE = {"key": None, "sections": []}
@@ -1026,13 +1022,8 @@ def profile_block(category: str, chat_id: str = "", path: Path | None = None) ->
 
 
 def dm_feedback_block() -> str:
-    """피드백 규칙에서 표시·호칭·길이 지시는 뺀다([말투 기준]과 충돌하지 않게)."""
-    blk = FB.rules_block("kakao")
-    if not blk or not CFG.get("voice_mode", True):
-        return blk
-    head, *rest = blk.splitlines()
-    rules = SP.strip_style_directives([x[2:] for x in rest if x.startswith("- ")])
-    return (head + "\n" + "\n".join(f"- {x}" for x in rules)) if rules else ""
+    """주인이 준 피드백에서 굳은 규칙 블록."""
+    return FB.rules_block("kakao")
 
 
 def corrections_block() -> str:
@@ -1052,7 +1043,7 @@ def corrections_write(lines: list[str]) -> None:
 PROXY_STYLE = """너는 카카오톡 오픈채팅방에 들어와 있는 한 명의 참여자다. 이 계정의 주인 OWNER 대신, OWNER으로서 쓴다. 'AI·봇·비서'라고 하지 않고 OWNER을 3인칭으로 부르지 않는다.
 (2026-11-08 심사 반영: 답을 주려 하지 않는다. 경청·인정이 기본이고, 방 사람들처럼 짧게 쓴다.)
 
-[길이·형식] [글쓴이 말투에 맞추기]를 따른다(존댓말/반말, 문장 길이, ㅋ·ㅠ·~ 같은 표시). 다른 사람 답글은 AI일 수 있으니 말투 기준으로 삼지 않는다. 한 문장이 기본, 많아야 두 문장. 줄바꿈·따옴표는 쓰지 않는다.
+[길이·형식] 글쓴이가 존댓말이면 존댓말, 반말이면 반말로 쓴다. 한 문장이 기본, 많아야 두 문장. 줄바꿈·따옴표는 쓰지 않는다.
 [글 유형 분기] 답하기 전에 글을 셋 중 하나로 나눈다.
  (가) 감정만 있고 질문이 없음 → 글쓴이가 쓴 감정 단어를 그대로 써서 인정 한 문장으로 끝낸다. 조언·되묻기 없음.
  (나) 감정 + 직접 물음('사과해야 하나요', '어떡하죠') → 인정 한 문장 뒤에, 물은 것에만 한 문장.
@@ -1132,31 +1123,10 @@ def room_rules(chat_id: str) -> str:
     return desc
 
 
-_ROOM_VOICE: dict[str, tuple[float, list[str]]] = {}
 DANGER_RE = re.compile(r"때리|맞았|맞아요|맞는데|맞고|폭행|자해|죽고\s?싶|자살|손목|칼로|학대")
 MINOR_BODY_RE = re.compile(r"(초\d|초등|중\d|중학|1[0-5]\s?살|열\s?(한|두|세|네|다섯)\s?살).*(키|몸무게|kg|살\s?(빼|쪄)|체형|뚱뚱|통통|마른)|(키|몸무게|kg).*(초\d|초등|중\d|중학|1[0-5]\s?살)", re.S)
 BODY_JUDGE_RE = re.compile(r"마른\s?편|통통|뚱뚱|평균|쪄|빼(야|셔|도|면)|kg|키에 비해")
 INSTITUTION_RE = re.compile(r"1388|112|병원|소아과|보건소|상담\s?센터|선생님께|부모님께")
-
-
-def room_voice(chat_id: str, n: int = 15) -> list[str]:
-    """이 방 사람들이 스레드에 단 실제 답글(짧은 것) — 말투 예시. 1시간 캐시. DB 읽기만."""
-    hit = _ROOM_VOICE.get(chat_id)
-    if hit and time.time() - hit[0] < 3600:
-        return hit[1]
-    # 사용자 지시(11/08): 답글은 AI일 수 있으니 말투 참고는 본문 고민 글(글쓴이, 확실히 사람)로만
-    rows = db("SELECT user_id, type, scope, message, v FROM chat_logs WHERE chat_id = ? AND scope = '1' "
-              "ORDER BY _id DESC LIMIT 600", [chat_id])
-    ex = []
-    for r in rows:
-        m = (r.get("message") or "").strip()
-        if to_int(r.get("type"), 1) not in TEXT_TYPES or str(r.get("user_id")) == str(S.bot_id) or m.startswith("{"):
-            continue
-        if 15 <= len(m) <= 400 and not re.search(r"@|방장|공지|인사|함보|http", m) and not ONT.never_hit(m) and not ONT.topic_hit(m):
-            ex.append(m.replace("\n", " ")[:90])
-    ex = list(dict.fromkeys(ex))[:n]
-    _ROOM_VOICE[chat_id] = (time.time(), ex)
-    return ex
 
 
 def thread_replies(chat_id: str, post_id: str, limit: int = 8) -> list[str]:
@@ -1193,7 +1163,6 @@ def proxy_output_gate(reply: str, post: str) -> tuple[str, str]:
 def ask_proxy(room_name: str, chat_id: str, sender: str, text: str, photos: list[Path], post_id: str | None = None) -> str | None:
     """지정한 오픈채팅방에서 OWNER 대신 짧게 답한다(웹 검색 없음). 방 사람들 답글 예시·이미 달린 답글을 보고, 코드 관문을 거친다."""
     ctx = fetch_messages(chat_id, CFG.get("proxy_context_messages", 15)) or ["(없음)"]
-    voice = room_voice(chat_id)
     already = thread_replies(chat_id, post_id or "")
     if len(already) >= CFG.get("proxy_skip_if_replies", 3):
         log.info("대리 답변 넘김(이미 답글 %d개): [%s] %s", len(already), room_name, mask_sensitive(text[:40]))
@@ -1204,11 +1173,8 @@ def ask_proxy(room_name: str, chat_id: str, sender: str, text: str, photos: list
         me = core.split("[나 핵심]", 1)[1] if "[나 핵심]" in core else ""
     rules = room_rules(chat_id)
     lines = [f"[오픈채팅방] {room_name}"] + ([f"[방 공지] {rules}"] if rules else [])
-    if voice:
-        lines += ["[이 방 글쓴이들이 쓴 고민 글 일부 — 이 방 사람들의 말투 참고(내용은 섞지 않는다)]", *("- " + v for v in voice)]
     lines += ["[최근 대화 — 분위기 참고용. 여기 있는 다른 사람의 질문에는 답하지 않는다]", *ctx[-8:]]
     lines += ["[이미 달린 답글]", *(("- " + a) for a in already)] if already else ["[이미 달린 답글] 없음"]
-    lines += [SP.mirror_block(text or "")]
     lines += [f"[{sender}님이 올린 글 — 이 글 하나에만 답한다]", text or ("(사진만 보냄)" if photos else "(빈 메시지)")]
     content: list[dict] = [b for b in (image_block(p) for p in photos) if b]
     content.append({"type": "text", "text": "\n".join(lines)})
@@ -1224,20 +1190,6 @@ def ask_proxy(room_name: str, chat_id: str, sender: str, text: str, photos: list
     if re.match(r"^\(?PASS\)?\s*$", out, re.I) or out.upper().startswith("PASS"):
         log.info("대리 답변 넘김(봇 판단): [%s] %s", room_name, mask_sensitive(text[:40]))
         return None
-    ms = SP.mirror_score(text or "", out)
-    if not ms["register_ok"] or ms["extra_marks"]:
-        fix = []
-        if not ms["register_ok"]:
-            fix.append(f"글쓴이는 {SP.questioner_style(text or '')['register']}인데 답이 다르다")
-        if ms["extra_marks"]:
-            fix.append(f"글쓴이가 안 쓴 표시({', '.join(ms['extra_marks'])})를 썼다")
-        content[-1]["text"] += f"\n[다시 쓰기] 방금 초안: \"{out}\" — {', '.join(fix)}. 글쓴이 말투에 맞춰 같은 뜻으로 다시."
-        out2 = (run_claude(content, sysmsg, False) or "").strip()
-        if out2 and not out2.upper().startswith("PASS"):
-            ms2 = SP.mirror_score(text or "", out2)
-            if ms2["register_ok"] and not ms2["extra_marks"]:
-                log.info("대리 답 말투 다시 맞춤: %s → %s", mask_sensitive(out[:30]), mask_sensitive(out2[:30]))
-                out = out2
     out, why = proxy_output_gate(out, text)
     if why:
         log.info("대리 답 관문으로 막음(%s): [%s] %s", why, room_name, mask_sensitive(text[:40]))
@@ -1959,11 +1911,9 @@ def _norm_sp(s: str) -> str:
 
 
 def _owner_register_stat(chat_id: str) -> tuple[int, float, str]:
-    """OWNER이 이 상대에게 쓰던 높임 통계 → (보낸 수, 반말 비율, '반말'/'존댓말'/'섞어'/""(3개 미만))."""
-    cs = ((SP.load() or {}).get("contacts") or {}).get(chat_id) or {}
-    n, ratio = int(cs.get("n") or 0), (float(cs.get("banmal_ratio") or 0) if cs else 0.0)
-    mine = ("반말" if ratio >= 0.6 else "존댓말" if ratio <= 0.25 else "섞어") if n >= 3 else ""
-    return n, ratio, mine
+    """주인이 이 상대에게 쓰던 높임 통계 자리. 말투 학습을 뺀 뒤로는 통계가 없어 늘 (0, 0.0, "")이다.
+    높임은 상대 카드·범주, 상대의 말끝, [대화 기록]의 주인 줄로만 정한다."""
+    return 0, 0.0, ""
 
 
 def _room_owner_register(chat_id: str, ctx: list | None) -> str:
@@ -1973,7 +1923,7 @@ def _room_owner_register(chat_id: str, ctx: list | None) -> str:
         mine = [m for m in OC.owner_lines(ctx or []) if not (chat_id and S.bot_sent(chat_id, m))][-6:]
     except Exception:  # noqa: BLE001
         return ""
-    regs = [SP.text_register(m) for m in mine]
+    regs = [REG.text_register(m) for m in mine]
     regs = [("반말" if r == "반말" else "존댓말") for r in regs if r and r != "섞임"]
     if not regs:
         return ""
@@ -1984,7 +1934,7 @@ def _room_owner_register(chat_id: str, ctx: list | None) -> str:
 
 
 def owner_used_banmal(chat_id: str, ctx: list | None = None) -> bool:
-    """OWNER이 이 상대·방에 반말을 쓴 적이 있나: 말투 통계(style.json, 반말 메시지 1개 이상) 또는 [대화 기록]의 OWNER 줄."""
+    """OWNER이 이 상대·방에 반말을 쓴 적이 있나: [대화 기록]의 OWNER 줄에 반말이 있으면 그렇다."""
     n, ratio, _ = _owner_register_stat(chat_id)
     if n and ratio * n >= 0.5:
         return True
@@ -1992,7 +1942,7 @@ def owner_used_banmal(chat_id: str, ctx: list | None = None) -> bool:
         mine = [m for m in OC.owner_lines(ctx or []) if not (chat_id and S.bot_sent(chat_id, m))]
     except Exception:  # noqa: BLE001
         return False
-    return any(SP.text_register(m) == "반말" for m in mine)
+    return any(REG.text_register(m) == "반말" for m in mine)
 
 
 TR_MIXED_SRC = "상대 반말이지만 범주·통계 존댓말"
@@ -2018,12 +1968,8 @@ def hold_register(chat_id: str, category: str, text: str = "", ctx: list | None 
 
 
 def owner_banmal_acks(chat_id: str) -> list[str]:
-    """OWNER이 이 상대에게 실제로 쓴 짧은 맞장구(style.json acks) 중 반말인 것(round5 DIAG §4-5의 근거)."""
-    try:
-        acks = ((SP.load() or {}).get("acks") or {}).get(chat_id) or []
-        return [a for a in acks if SP.text_register(a) == "반말"]
-    except Exception:  # noqa: BLE001
-        return []
+    """주인이 이 상대에게 쓰던 반말 맞장구 자리. 말투 학습을 뺀 뒤로는 기록이 없어 늘 빈 목록이다."""
+    return []
 
 
 _DEFER_PROMISE_RE = re.compile(r"[볼줄릴할]\s?[게께]|겠")   # '생각해볼게요'·'말씀드릴게요'·'말해줄게' 같은 미루는 약속 꼴
@@ -2068,23 +2014,23 @@ def room_size(chat_id: str) -> int:
 def target_register(chat_id: str, category: str, text: str = "", ctx: list | None = None) -> tuple[str, str]:
     """이 상대에게 쓸 높임(반말/해요체/합쇼체)과 근거. 근거가 '기본값'이면 신호가 없는 것(검사는 하지 않는다).
     11/09 round2 문제 3: 상대 범주(honorific_mine 사실·범주 기본) + 상대 최근 말(받은 말 → 없으면 대화 기록의 상대 줄 3개)
-    + OWNER이 이 상대에게 실제로 쓰던 높임 통계(style.json contacts.banmal_ratio)로 정한다.
+    + [대화 기록]에서 OWNER이 직접 쓴 말의 높임으로 정한다.
     - 상대가 존댓말: 존댓말(상대·범주가 합쇼체면 합쇼체). 다만 친구·가족 범주에서 OWNER이 늘 반말을 써 온 상대
       (register_banmal_min_n개 이상, 반말 비율 0.85 이상)면 반말(후배가 존댓말을 쓰는 경우)
     - 상대가 반말: 범주·통계가 반말이면 반말, 아니면(교수·학교 등) 존댓말 유지
     - 상대 말로 모르면: 통계(반말 ≥0.6 / 존댓말 ≤0.25) → 범주 순"""
     try:
-        base = SP.register_for(ONT, chat_id, category) if ONT.ok else SP.CATEGORY_REGISTER.get(category, "")
+        base = REG.register_for(ONT, chat_id, category) if ONT.ok else REG.CATEGORY_REGISTER.get(category, "")
     except Exception:  # noqa: BLE001
-        base = SP.CATEGORY_REGISTER.get(category, "")
-    known_cat = category in SP.CATEGORY_REGISTER or category in ("학교", "업무", "동아리") or base in ("반말", "합쇼체")
+        base = REG.CATEGORY_REGISTER.get(category, "")
+    known_cat = category in REG.CATEGORY_REGISTER or category in ("학교", "업무", "동아리") or base in ("반말", "합쇼체")
     if base not in ("반말", "해요체", "합쇼체"):
         base, known_cat = "", False
     # OWNER 규칙(11/09 고침): 기본은 존댓말, OWNER이 이 상대·방에 전에 반말을 쓴 적이 있을 때만 반말
     if CFG.get("banmal_only_if_owner_used", True):
         if owner_used_banmal(chat_id, ctx):
             return "반말", "OWNER이 전에 반말 씀"
-        other0 = SP.text_register(strip_forged(text or ""))
+        other0 = REG.text_register(strip_forged(text or ""))
         polite = "합쇼체" if other0 == "합쇼체" or base == "합쇼체" else "해요체"
         return polite, "OWNER 반말 기록 없음(기본 존댓말)"
     n, ratio, mine = _owner_register_stat(chat_id)
@@ -2095,10 +2041,10 @@ def target_register(chat_id: str, category: str, text: str = "", ctx: list | Non
         rr = _room_owner_register(chat_id, ctx)
         if rr in ("반말", "존댓말") and is_group_room(chat_id):   # 섞어 쓰면 이 방 근거로 정하지 않는다(예전대로)
             mine, room_src = rr, f"이 방 OWNER 말 {rr}"
-    other = SP.text_register(strip_forged(text or ""))
+    other = REG.text_register(strip_forged(text or ""))
     if other in ("", "섞임"):
         theirs = [c for c in (ctx or []) if getattr(c, "owner", None) is False and not OC.OWNER_LINE_RE.match(c or "")]
-        regs = [SP.text_register(re.sub(r"^\[[^\]]*\]\s*[^:]{1,30}:\s?", "", c)) for c in theirs[-3:]]
+        regs = [REG.text_register(re.sub(r"^\[[^\]]*\]\s*[^:]{1,30}:\s?", "", c)) for c in theirs[-3:]]
         regs = [r for r in regs if r and r != "섞임"]
         other = regs[-1] if regs else other
     friend = category in ("친구", "가족")
@@ -2125,7 +2071,7 @@ def target_register(chat_id: str, category: str, text: str = "", ctx: list | Non
 
 # ── B2(11/09): 고정 보류 문구('확인해 보고 알려줄게!') 폐지 ──
 # 의견·개인정보·비공개·돈·결정·봇 지시·AI 질문은 아무것도 안 보내고 할 일(=PC 알림)만. 사실·일정 질문만 짧은 미룸.
-# 미룸 문구는 상대 말투(OWNER이 그 상대에게 쓰던 맞장구 중 미루는 말 → 없으면 말투별 기본)로 고르고, 같은 상대에게 같은 문구는 다시 안 쓴다.
+# 미룸 문구는 그 상대에게 쓸 높임(반말/해요체/합쇼체)의 기본 문구에서 고르고, 같은 상대에게 같은 문구는 다시 안 쓴다.
 HOLD_QUIET_FLAGS = {"personal_data", "instruction_to_bot", "abusive", "legal_or_complaint", "money_or_invoice", "approval_or_decision"}
 HOLD_QUIET_WORDS_RE = re.compile(r"personal_data|instruction_to_bot|abusive|legal_or_complaint|money_or_invoice|approval_or_decision"
                                  r"|비공개 주제|개인정보|학교·학적|AI냐|OWNER이 결정할 일|봇 지시")
@@ -2206,9 +2152,7 @@ def hold_ack_candidates(chat_id: str, category: str, pol: dict | None = None, te
     reg = reg if reg in ("반말", "해요체", "합쇼체") else _ack_register(chat_id, category, text)
     if not reg:
         return []
-    prof = SP.load() or {}
-    mine = [a for a in ((prof.get("acks") or {}).get(chat_id) or []) if OC.SOFT_DEFER_RE.search(a)
-            and not SP.register_mismatch(a, reg)]   # OWNER이 쓰던 말이라도 지금 높임과 어긋나면 빼고 말투별 기본 풀로
+    mine: list[str] = []   # 말투 학습을 뺀 뒤로는 상대별 맞장구 기록이 없다. 높임별 기본 문구만 쓴다
     pool_cfg = CFG.get("hold_ack_pool") or {}
     base = list(pool_cfg.get(reg) or HOLD_ACK_POOL[reg])
     extra = [(pol or {}).get("hold_message")] if reg == "합쇼체" and (pol or {}).get("hold_message") else []
@@ -2262,51 +2206,14 @@ def hold_plan(chat_id: str, category: str, text: str, todo: str, reason: str, po
     return (a, "") if a else ("", "이 상대에게 쓸 미룸 문구를 다 씀")
 
 
-_VR_CACHE = {"mtime": 0.0, "block": ""}
-
-
-def owner_voice_rules() -> str:
-    """OWNER 글 리듬 블록(voice_corpus: AI 채팅·Codex·Speakly 받아쓰기). profile.json이 바뀔 때만 다시 읽는다."""
-    try:
-        m = (VC.OUT_DIR / "profile.json").stat().st_mtime
-    except OSError:
-        return ""
-    if m != _VR_CACHE["mtime"]:
-        try:
-            _VR_CACHE["block"], _VR_CACHE["mtime"] = VC.voice_rules_block(), m
-        except Exception as e:  # noqa: BLE001
-            log.warning("말투 코퍼스 블록 실패: %s", e)
-            return ""
-    return _VR_CACHE["block"]
-
-
-KAKAO_VOICE_SKILL = Path.home() / ".claude" / "skills" / "kakao-voice" / "SKILL.md"
-_KVS_CACHE = {"mtime": None, "block": ""}
-
-
-def kakao_voice_block() -> str:
-    """OWNER 카톡 말투 스킬(~/.claude/skills/kakao-voice/SKILL.md) 1~5절을 프롬프트 블록으로(11/09 OWNER 요청).
-    머리말·제목·6절(내용 규칙: 코드 관문이 맡음)·7절(점검표)은 뺀다. 파일이 바뀔 때만 다시 읽는다. config kakao_voice_skill로 끔."""
-    if not CFG.get("kakao_voice_skill", True):
-        return ""
-    path = Path(CFG.get("kakao_voice_skill_path") or KAKAO_VOICE_SKILL)
-    try:
-        m = path.stat().st_mtime
-    except OSError:
-        return ""
-    if m != _KVS_CACHE["mtime"]:
-        try:
-            body = path.read_text(encoding="utf-8")
-            body = re.sub(r"\A---.*?\n---\s*\n", "", body, flags=re.S)
-            body = re.split(r"\n## 6\.", body, maxsplit=1)[0]
-            body = re.sub(r"\A.*?(?=\n## 1\.)", "", body, flags=re.S).strip()
-            _KVS_CACHE["block"] = ("[OWNER 카톡 말투 — OWNER이 정리한 규칙. 아래 [높임] 줄(코드가 정함)이 있으면 높임은 그것을 따른다]\n"
-                                   + body[:4000]) if body else ""
-            _KVS_CACHE["mtime"] = m
-        except Exception as e:  # noqa: BLE001
-            log.warning("말투 스킬 읽기 실패: %s", e)
-            return ""
-    return _KVS_CACHE["block"]
+REPLY_RULES = """[대신 답할 때 공통 규칙]
+- 너는 OWNER 대신 OWNER으로서 쓴다. 'AI·봇·비서·클로드'라고 소개하지 않고, OWNER을 3인칭("OWNER이 ~")으로 부르지 않는다. 미룰 때도 "확인하고 알려줄게"처럼 1인칭으로.
+- 높임(반말/존댓말)은 아래 [높임] 줄이 있으면 그것을 따른다.
+- 팁·설명은 제일 쓸모 있는 것 하나만, 나열하지 않는다.
+- 가벼운 응원·맞장구·리액션·짧은 의견은 근거가 없어도 답한다(confidence 0.7 이상). 사실을 새로 지어내지만 않으면 된다.
+  보류는 약속·시간 정하기, 돈, 결정(지원·가입·수락), OWNER만 아는 사실(경험·계획·상황)이 필요한 것만.
+- OWNER이 실제로 겪었다고 근거가 없는 경험담·사실은 지어내지 않는다. 시각·날짜는 대화 기록의 시각으로만 말하고 모르면 말하지 않는다. 모르면 짧게 모른다고 한다.
+- 힘든 고민에는 조언보다 짧은 공감을 먼저. 따돌림·폭행·자해 같은 위험 신호면 공감 한 줄 + 1388(문자 가능)·믿을 만한 어른 안내, 지금 위험하면 112."""
 
 
 def ask_dm(room_name: str, chat_id: str, sender: str, text: str, photos: list[Path],
@@ -2318,10 +2225,7 @@ def ask_dm(room_name: str, chat_id: str, sender: str, text: str, photos: list[Pa
     끄면 예전 profile.md."""
     ctx = fetch_messages(chat_id, CFG["context_messages"]) if use_context else []
     _DMLAST.ctx = ctx   # dm_decide의 높임 검사가 같은 대화 기록을 쓰도록
-    voice = ""
     cat = category or (DM._load().get("rooms", {}).get(chat_id) or {}).get("category", "미분류")
-    if CFG.get("voice_mode", True):
-        voice = SP.style_block(chat_id, SP.register_for(ONT, chat_id, cat))
     rt = room_type(chat_id)
     group = is_group_room(chat_id)
     open_room = rt == "OM"   # 공개 오픈채팅(모르는 사람들): 캘린더 블록을 넣지 않고 일정은 무시(11/09)
@@ -2343,10 +2247,7 @@ def ask_dm(room_name: str, chat_id: str, sender: str, text: str, photos: list[Pa
               ("\n\n[이 대화방 규칙]\n" + extra if extra else "") +
               (OPEN_RULE if open_room else GROUP_RULE if group else "") +
               (("\n\n" + cal) if CFG.get("calendar_mode", True) and not open_room and (cal := CAL.prompt_block()) else "") +
-              ("\n\n" + SP.VOICE_RULES + ("\n\n" + voice if voice else "") if CFG.get("voice_mode", True) else "") +
-              (("\n\n" + kv) if (kv := kakao_voice_block()) else "") +
-              (("\n\n" + vr) if CFG.get("voice_mode", True) and CFG.get("voice_corpus", True) and (vr := owner_voice_rules()) else "") +
-              (("\n\n" + rhythm) if (rhythm := SP.rhythm_block(CFG.get("dm_rhythm_rooms", []))) and CFG.get("voice_mode", True) else "") +
+              ("\n\n" + REPLY_RULES) +
               (("\n\n" + fbb) if (fbb := dm_feedback_block()) else "") +
               (SELF_DESC_RULE if CFG.get("dm_self_desc_mode", "trim") != "off" else "") +
               dm_register_block(chat_id, cat, text, ctx) +
@@ -2612,7 +2513,7 @@ def site_search(terms: list[str], max_lines: int = 8) -> list[str]:
 def dm_decide(room_name: str, chat_id: str, sender: str, text: str, photos: list[Path],
               extra: str = "", use_context: bool = True, category: str = "미분류",
               mode: str | None = None) -> tuple[str, str, str, str] | None:
-    """갠톡 판정 한 곳: 코드 관문 → LLM(프로필/카드) → decide_dm → 찾아보기·말투 → 출력 검사.
+    """갠톡 판정 한 곳: 코드 관문 → LLM(프로필/카드) → decide_dm → 찾아보기 → 높임 검사 → 출력 검사.
     관문 단계 hard는 바로 보류, decide·avail은 LLM에 넘기되 decide_dm이 되풀이·완곡 답만 통과시킨다.
     11/09 온톨로지 축소: 관문·출력 검사(비공개·개인정보)·찾아보기는 ontology_mode와 무관하게 늘 켠다(저장소만 읽히면).
     mode는 사실 근거만 고른다 — on이고 dm_profile_slim을 끈 경우에만 예전 상대 카드, 아니면 축소 프로필(ask_dm)."""
@@ -2636,7 +2537,7 @@ def dm_decide(room_name: str, chat_id: str, sender: str, text: str, photos: list
                         gate=level, category=category), why, text)
     if res is None or not on:
         return res
-    book = _take_book(res)   # 다시 묻기(찾아보기·말투)가 _DMLAST.sched를 덮어쓰므로, 최종 답의 약속은 여기서 따로 들고 간다
+    book = _take_book(res)   # 다시 묻기(찾아보기·높임 고쳐 쓰기)가 _DMLAST.sched를 덮어쓰므로, 최종 답의 약속은 여기서 따로 들고 간다
     action, reply, todo, reason = res
     terms = list(((getattr(_DMLAST, "d", None) or {}).get("lookup") or []))
     if action in ("hold", "reply") and terms and CFG.get("dm_lookup", True) and room_type(chat_id) != "MemoChat":
@@ -2654,35 +2555,6 @@ def dm_decide(room_name: str, chat_id: str, sender: str, text: str, photos: list
                 action, reply, todo, reason = res2
                 reason = "찾아봄: " + reason
                 res = (action, reply, todo, reason)
-    if action == "reply" and CFG.get("voice_mode", True) and CFG.get("voice_lint", True):
-        reg = SP.register_for(ONT, chat_id, category)
-        issues = SP.lint(reply, chat_id, reg)
-        if issues:
-            log.info("말투 검사 → 다시 쓰기: %s", ", ".join(issues))
-            res3 = ask_dm(room_name, chat_id, sender, text, photos, use_context=use_context, card=card,
-                          extra=(extra + "\n" if extra else "") + f"[다시 쓰기] 방금 초안: \"{reply}\"\n문제: {', '.join(issues)}. "
-                          "이 표현을 빼고 [내 말투]의 길이·맞장구로 다시 쓴다. 판정(보낼지)은 바꾸지 않는다.", gate=level,
-                          category=category)
-            book3 = _take_book(res3)
-            drift = rewrite_drift(reply, res3[1]) if res3 is not None and res3[0] == "reply" else ""
-            if drift:   # round5(DIAG §4-1, 리플레이 13번 '넵~' → '…알려주세요~'): 뜻이 바뀐 다시 쓰기는 버리고 아래 scrub으로
-                log.info("말투 다시 쓰기 버림(%s): %s", drift, mask_sensitive((res3[1] or "")[:40]))
-            if res3 is not None and res3[0] == "reply" and not drift and len(SP.lint(res3[1], chat_id, reg)) < len(issues):
-                if _loosen_tag(res3[3]) != _loosen_tag(reason) or SCHED_TAG in reason or SCHED_TAG in res3[3]:
-                    reason = res3[3]   # 다시 쓴 답의 종류(되풀이·완곡·일정)를 따른다 — 그 답을 검사한 판정이라서
-                book = book3
-                action, reply, todo, reason = res3[0], res3[1], res3[2], reason + " / 말투 다듬음"
-                res = (action, reply, todo, reason)
-            left = [x for x in SP.lint(reply, chat_id, reg) if not x.startswith("너무 김")]
-            if left:   # 그래도 남았으면 그 문장만 코드가 잘라 낸다(남는 게 없으면 이 상대에게 쓰던 맞장구)
-                cut = SP.scrub(reply, chat_id, reg)
-                log.info("말투 문장 잘라냄: %s → %s", mask_sensitive(reply[:40]), mask_sensitive(cut[:40]))
-                reply, reason = cut, reason + " / 문장 정리"
-                res = (action, reply, todo, reason)
-                if SOFT_TAG in reason and OC.soft_reply_problem(reply, text):   # 잘라 낸 뒤 맞장구('ㅇㅋ')가 되면 확답이라 보류
-                    return "hold", "", todo, reason + " / 완곡 답 깨짐"
-                if book and not _book_reply_ok(reply, CAL.parse_iso(book.get("start", ""))):   # 잡을 시각이 잘려 나가면 보류
-                    return "hold", "", todo or "약속 확인 필요(답에서 시각이 빠짐)", reason + " / 약속 답 깨짐"
     if action == "reply" and CFG.get("register_check", True):
         # 11/09 round2 문제 3: 높임이 상대와 어긋나면 한 번 다시 쓰고, 그래도 어긋나면 보류(할 일)
         tgt, src = target_register(chat_id, category, text, getattr(_DMLAST, "ctx", None))
@@ -2695,8 +2567,8 @@ def dm_decide(room_name: str, chat_id: str, sender: str, text: str, photos: list
                 return "hold", "", f"직접 답하기(봇 미룸 높임 못 정함: {hsrc}): {mask_sensitive(text)[:60]}", \
                     f"{reason} / 미룸 높임 보류({hsrc})"
             tgt, src = htgt, hsrc
-        acks = ((SP.load() or {}).get("acks") or {}).get(chat_id) or []
-        mis = SP.register_mismatch(reply, tgt, acks) if src != "기본값" and not OC.output_check(reply, ONT, chat_id, category) else ""
+        acks: list[str] = []
+        mis = REG.register_mismatch(reply, tgt, acks) if src != "기본값" and not OC.output_check(reply, ONT, chat_id, category) else ""
         if mis and SOFT_TAG in reason:
             # r4: 짧은 완곡 미룸은 모델에게 다시 쓰게 하지 않고 같은 뜻의 그 높임 미룸 문구로 바꾼다(없으면 보류)
             sw = defer_swap(chat_id, category, reply, tgt)
@@ -2717,12 +2589,9 @@ def dm_decide(room_name: str, chat_id: str, sender: str, text: str, photos: list
                           gate=level, category=category)
             book4 = _take_book(res4)
             # 리뷰(r3): 말끝만 고치는 다시 쓰기라 약속(book) 여부·시각이 바뀌면 판정이 바뀐 것 → 보류.
-            # 말투 검사(lint)를 이미 거친 답이었으니 다시 쓴 답에 lint 문제가 새로 생겨도 보류
             same_book = (book or {}).get("start") == (book4 or {}).get("start") and bool(book) == bool(book4)
-            lint_new = [x for x in SP.lint(res4[1], chat_id, SP.register_for(ONT, chat_id, category)) if not x.startswith("너무 김")] \
-                if res4 is not None and res4[1] and CFG.get("voice_mode", True) and CFG.get("voice_lint", True) else []
-            if res4 is not None and res4[0] == "reply" and res4[1] and not SP.register_mismatch(res4[1], tgt, acks) \
-                    and same_book and not lint_new and not OC.output_check(res4[1], ONT, chat_id, category):
+            if res4 is not None and res4[0] == "reply" and res4[1] and not REG.register_mismatch(res4[1], tgt, acks) \
+                    and same_book and not OC.output_check(res4[1], ONT, chat_id, category):
                 if _loosen_tag(res4[3]) != _loosen_tag(reason) or SCHED_TAG in reason or SCHED_TAG in res4[3]:
                     reason = res4[3]
                 book = book4
@@ -2743,26 +2612,6 @@ def dm_decide(room_name: str, chat_id: str, sender: str, text: str, photos: list
             return "hold", "", todo or f"확인 필요({bad})", f"출력 검사: {bad}"
     _DMLAST.sched = book   # run_job이 보는 약속 = 최종 답을 검사한 판정의 약속
     return res
-
-
-_RW_ASK_RE = re.compile(r"알려\s?(?:주|줘)|주세요|주실|줄래|줄\s?수|해\s?줘|말해\s?줘|보내\s?(?:주|줘)|부탁")
-_RW_PROMISE_RE = re.compile(r"(?:볼|할|줄|드릴|갈|올|챙길|보낼|알려줄|말해줄)\s?[게께]|하겠|드리겠|보겠")
-
-
-def rewrite_drift(draft: str, new: str) -> str:
-    """말투 다시 쓰기가 뜻을 바꿨으면 이유, 아니면 "". 초안에 없던 '?'·부탁말·새 약속이 생기거나 초안보다 길면 바뀐 것."""
-    a, b = draft or "", new or ""
-    if not b.strip():
-        return "빈 답"
-    if b.count("?") + b.count("？") > a.count("?") + a.count("？"):
-        return "새 물음"
-    if len(_RW_ASK_RE.findall(b)) > len(_RW_ASK_RE.findall(a)):
-        return "새 부탁"
-    if len(_RW_PROMISE_RE.findall(b)) > len(_RW_PROMISE_RE.findall(a)):
-        return "새 약속"
-    if len(b.strip()) > len(a.strip()):
-        return "초안보다 김"
-    return ""
 
 
 def _take_book(res) -> dict | None:
@@ -5194,13 +5043,9 @@ def calendar_loop() -> None:
         time.sleep(max(300, float(CFG.get("calendar_sync_min", 30)) * 60))
 
 
-def style_refresh_loop() -> None:
-    """OWNER 말투 프로필(ontology/style.json)을 하루 한 번 다시 만든다. 봇이 보낸 말은 빠진다(11/07 이전 OWNER 메시지만)."""
+def feedback_refresh_loop() -> None:
+    """주인이 준 피드백 원장에서 규칙을 주기적으로 다시 굳힌다."""
     while True:
-        try:
-            age = time.time() - SP.STYLE_FILE.stat().st_mtime
-        except OSError:
-            age = 10 ** 9
         try:
             rage = time.time() - FB.RULES.stat().st_mtime
         except OSError:
@@ -5211,14 +5056,6 @@ def style_refresh_loop() -> None:
                 log.info("피드백 규칙 갱신: %s", res.get("n") or res.get("why"))
             except Exception:  # noqa: BLE001
                 log.exception("피드백 규칙 갱신 오류")
-        if age > float(CFG.get("style_refresh_hours", 24)) * 3600 and S.bot_id:
-            try:
-                rooms = {cid: r for cid, r in DM._load().get("rooms", {}).items()
-                         if DM._load().get("categories", {}).get(r.get("category"), {}).get("mode") != "off"}
-                prof = SP.build(db, str(S.bot_id), rooms, ONT)
-                log.info("말투 프로필 갱신: %s", {k: v["n"] for k, v in prof.get("registers", {}).items()})
-            except Exception:  # noqa: BLE001
-                log.exception("말투 프로필 갱신 오류")
         time.sleep(3600)
 
 
@@ -5352,12 +5189,12 @@ def odd_reply(reply: str, chat_id: str, category: str = "") -> list[str]:
     why = []
     if len(r) > int(CFG.get("digest_long_chars", DIGEST_LONG_CHARS)):
         why.append(f"너무 김({len(r)}자)")
-    sents = [x for x in SP._sentences(r) if len(x) >= 4]
-    pol = [bool(SP._POLITE_END.search(x)) for x in sents]
+    sents = [x for x in REG._sentences(r) if len(x) >= 4]
+    pol = [bool(REG._POLITE_END.search(x)) for x in sents]
     if len(sents) >= 2 and any(pol) and not all(pol):
         why.append("존댓말/반말 섞임 의심")
     try:
-        reg = SP.register_for(ONT, chat_id, category) if ONT.ok else SP.CATEGORY_REGISTER.get(category, "")
+        reg = REG.register_for(ONT, chat_id, category) if ONT.ok else REG.CATEGORY_REGISTER.get(category, "")
     except Exception:  # noqa: BLE001
         reg = ""
     if sents:
@@ -5366,9 +5203,6 @@ def odd_reply(reply: str, chat_id: str, category: str = "") -> list[str]:
             why.append("반말 상대에 존댓말 의심")
         elif reg and reg != "반말" and mine == "반말":
             why.append(f"{reg} 상대에 반말 의심")
-    for p, w in SP.LINT_PATTERNS:
-        if re.search(p, r):
-            why.append(f"금지 표현: {w}")
     return why
 
 
@@ -6203,8 +6037,7 @@ def main() -> None:
     threading.Thread(target=diary_loop_thread, daemon=True).start()   # 나와의 채팅 하루 질문·일기 요청(owner_diary_loop)
     if CFG.get("calendar_mode", True):
         threading.Thread(target=calendar_loop, daemon=True).start()
-    if CFG.get("voice_mode", True):
-        threading.Thread(target=style_refresh_loop, daemon=True).start()
+    threading.Thread(target=feedback_refresh_loop, daemon=True).start()
     if CFG.get("keep_awake", True):
         threading.Thread(target=keep_awake_loop, daemon=True).start()
     if CFG.get("site_ingest_hours", 24) and (BASE / "browser-profile").exists():
