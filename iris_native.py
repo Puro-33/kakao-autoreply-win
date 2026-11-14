@@ -67,6 +67,7 @@ class NativeIris:
         self.rescan_sec = rescan_sec
         self._last_scan = 0.0
         self._mtimes: dict[str, float] = {}
+        self._seen: dict[str, tuple] = {}   # 방별 (마지막에 읽은 DB 파일의 수정 시각·크기, 그때의 마지막 logId)
         self._schema()
         self._load_static()
         self.acct.scan_rooms()
@@ -168,11 +169,21 @@ class NativeIris:
                     continue
                 first = cid not in self.last_by_room
                 last = self.last_by_room.get(cid, 0)
-                rows = self.acct.raw_messages(cid, last)
-                if not rows:
+                # 방 DB 파일이 지난번 읽은 그대로면 복호화하지 않는다. 예전에는 확인할 때마다 모든 방을 통째로 복호화했다
+                sig = self.acct.signature(cid)
+                if self._seen.get(cid) == (sig, last):
+                    continue
+                rows = self.acct.read_since(cid, last)
+                if rows is None:   # 열지 못함(카톡이 쓰는 중 등): 읽은 것으로 치지 않고 다음 확인 때 다시 읽는다
                     self.last_by_room.setdefault(cid, 0)
                     continue
+                if not rows:
+                    self.last_by_room.setdefault(cid, 0)
+                    self._seen[cid] = (sig, self.last_by_room[cid])
+                    continue
                 self._insert_logs(cid, rows)
+                # 읽기 시작 전에 잰 값을 적는다: 읽는 동안 새 글이 붙었으면 다음 확인에서 값이 달라 다시 읽는다
+                self._seen[cid] = (sig, self.last_by_room[cid])
                 if first:
                     continue   # 새로 읽게 된 방의 과거 글은 이벤트로 보내지 않는다
                 for r in rows:

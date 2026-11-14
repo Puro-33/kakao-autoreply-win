@@ -485,9 +485,22 @@ def deliver(input_hwnd: int, text: str, confirm_timeout: float = 1.0, timings: d
             return {"ok": True, "confirmed": True, "timings_ms": tm}
     except KakaoWindowError:
         pass
-    if not _same(get_text(input_hwnd), body):
-        tm["send_enter"] = _ms(t)
-        return {"ok": True, "confirmed": False, "timings_ms": tm}   # 글이 바뀜(사람이 입력 중 등) → 더 누르지 않음
+    after = get_text(input_hwnd)
+    if not _same(after, body):
+        if is_empty_input(after):   # 기다린 직후에 비워짐 = 늦게 전송됨
+            tm["send_enter"] = _ms(t)
+            tm["clicks"] = 0
+            return {"ok": True, "confirmed": True, "timings_ms": tm}
+        if not _same(after.rstrip("\r\n"), body.rstrip("\r\n")):
+            tm["send_enter"] = _ms(t)
+            return {"ok": True, "confirmed": False, "timings_ms": tm}   # 글이 바뀜(사람이 입력 중 등) → 더 누르지 않음
+        # Enter가 전송이 아니라 줄바꿈으로 들어갔다(글 끝에 빈 줄만 붙음): 보낸 것이 아니므로 글을 되돌리고 버튼으로 보낸다.
+        # 예전에는 이 경우도 '글이 바뀜'으로 보고 성공을 돌려줘서, 보내지 않은 글이 입력칸에 남았다.
+        try:
+            type_text(input_hwnd, body)
+        except KakaoWindowError as e:
+            return {"ok": False, "error": f"입력 되돌리기 실패: {e}", "timings_ms": tm}
+        tm["enter_newline"] = True
     tm["enter_failed"] = _ms(t)
     time.sleep(0.3)   # 글을 넣은 뒤 전송 버튼이 켜질 틈
     chat_hwnd = user32.GetAncestor(input_hwnd, GA_ROOT) or input_hwnd

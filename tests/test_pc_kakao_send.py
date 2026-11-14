@@ -140,7 +140,8 @@ def run_fake(cfg: dict) -> None:
         for i in range(2 if name in cfg.get("two_inputs", []) else 1):
             e = u.CreateWindowExW(0, "RICHEDIT50W", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_WANTRETURN,
                                   5, 360 - i * 60, 330, 50, h, None, hinst, None)
-            subclass(e, chat_enter)
+            if name not in cfg.get("enter_newline", []):   # 이 방은 Enter가 전송이 아니라 줄바꿈(RichEdit 기본 동작)
+                subclass(e, chat_enter)
             edits.append(e)
         state["chats"][name] = (h, edits)
         if name in cfg.get("minimized", []):
@@ -250,7 +251,8 @@ check("테스트 소스에 실제 전송 호출 없음", ("send=" + "True") not 
 ROOM = "__가짜방_테스트__"
 MINI = "__최소화방__"
 TWO = "__입력칸둘__"
-fake = Fake(open=[ROOM, MINI, TWO], minimized=[MINI], two_inputs=[TWO],
+NL = "__줄바꿈방__"
+fake = Fake(open=[ROOM, MINI, TWO, NL], minimized=[MINI], two_inputs=[TWO], enter_newline=[NL],
             searchable=["__검색방__", "가족여행", "가족"])
 try:
     P = fake.pids
@@ -312,6 +314,13 @@ try:
     d = M.deliver(M.input_controls(hm)[0], "최소화 창에 전송")
     check("최소화 창에도 전송됨(가짜)", d["confirmed"] and fake.events("sent")[-1]["room"] == MINI)
 
+    # --- Enter가 줄바꿈으로 들어가는 창: 글을 되돌리고 버튼으로 보낸다(보내지 않고 성공이라 하지 않는다)
+    inl = M.input_controls(M.find_chat_window(NL, P))[0]
+    d = M.deliver(inl, "줄바꿈 창에 전송")
+    last = fake.events("sent")[-1]
+    check("Enter가 줄바꿈이면 버튼으로 전송·글은 그대로", d["ok"] and d["confirmed"] and d["timings_ms"].get("enter_newline")
+          and last["room"] == NL and last["text"] == "줄바꿈 창에 전송" and len(fake.events("sent")) == 4, (d, last))
+
     # --- open_chat
     r = M.open_chat("__검색방__", pids=P)
     check("open_chat dry-run: 검색칸 안 건드림", r["ok"] and r.get("dry_run") and M.get_text(fake.search) == ""
@@ -330,7 +339,7 @@ try:
 
     # --- 시간 재기 (가짜 창, 30회)
     N = 30
-    rows = []
+    rows, bad = [], []
     for i in range(N):
         tm = {}
         t0 = time.perf_counter()
@@ -342,9 +351,14 @@ try:
         t0 = time.perf_counter()
         M.get_text(ii)
         tm["read_draft"] = (time.perf_counter() - t0) * 1000
-        M.deliver(ii, f"시간 재기 {i}\n둘째 줄", timings=tm)
+        d = M.deliver(ii, f"시간 재기 {i}\n둘째 줄", timings=tm)
+        if not (d["ok"] and d.get("confirmed")):
+            bad.append((i, d, M.get_text(ii)))
+        tm.setdefault("send_enter", tm.get("send_click", 0.0))   # 버튼으로 넘어간 회차도 표에 넣는다
         rows.append(tm)
-    check(f"시간 재기 {N}회 모두 전송", len(fake.events("sent")) == 3 + N)
+    check(f"시간 재기 {N}회 모두 확인됨", not bad, bad)
+    n_sent = len(fake.events("sent"))
+    check(f"시간 재기 {N}회 모두 전송", n_sent == 4 + N, f"{n_sent - 4}/{N}건, 버튼 전송 {sum('send_click' in r_ for r_ in rows)}회")
     keys = ["find_window", "find_input", "read_draft", "set_text", "verify_text", "send_enter"]   # 버튼 클릭 → Enter 전송
     print("\n--- 단계별 시간(ms, 가짜 창, %d회): 중앙값 / 최대" % N)
     tot = []
