@@ -220,6 +220,16 @@ class NativeIris:
                 r = PK.send(title, text, send=True, auto_open=True)
             else:
                 r = sender(title, text)
+            # 단계별 전송 시간을 남긴다(느린 구간을 찾는 용도). 글 내용·방 이름은 적지 않는다.
+            try:
+                tm = dict(r.get("timings_ms") or {})
+                op = tm.pop("open_chat", None)
+                print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 전송 시간 room={str(room_id)[-5:]} ok={bool(r.get('ok'))} "
+                      f"confirmed={bool(r.get('confirmed'))} 방열기={'예' if op is not None else '아니요'} "
+                      f"ms={json.dumps(tm, ensure_ascii=False)}"
+                      + (f" 방열기_ms={json.dumps(op, ensure_ascii=False)}" if op else ""), flush=True)
+            except Exception:  # noqa: BLE001
+                pass
             return {"success": bool(r.get("ok") and r.get("confirmed")), "native_pc": True, "error": r.get("error")}
         except Exception as e:  # noqa: BLE001
             return {"success": False, "native_pc": True, "error": f"pc_send: {type(e).__name__}"}

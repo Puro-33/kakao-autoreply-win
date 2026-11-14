@@ -84,6 +84,9 @@ user32.GetWindowTextLengthW.argtypes = [W.HWND]
 user32.IsWindowVisible.argtypes = [W.HWND]
 user32.IsWindow.argtypes = [W.HWND]
 user32.IsIconic.argtypes = [W.HWND]
+user32.ShowWindow.argtypes = [W.HWND, ctypes.c_int]
+user32.GetForegroundWindow.restype = W.HWND
+user32.SetForegroundWindow.argtypes = [W.HWND]
 user32.IsHungAppWindow.argtypes = [W.HWND]
 user32.GetWindowThreadProcessId.argtypes = [W.HWND, ctypes.POINTER(W.DWORD)]
 user32.GetWindowThreadProcessId.restype = W.DWORD
@@ -341,6 +344,25 @@ def find_search_edit(main_hwnd: int) -> tuple[int | None, str]:
     return None, f"not-found(Edit {len(edits)}개, 보이는 것 {len(vis)}개)"
 
 
+def _tuck_away(chat_hwnd: int, fg_before, main_hwnd, settle: float = 0.6) -> None:
+    """방금 연 대화창을 활성화 없이 최소화하고(SW_SHOWMINNOACTIVE 7) 쓰던 창을 다시 앞으로 둔다.
+
+    실측: 방을 열면 카톡이 그 대화창을 스스로 앞으로 가져온다(막을 수 없음). 창이 뜨자마자 한 번만 최소화하면
+    카톡이 여는 동작을 마저 하면서 다시 꺼내 놓았다 → settle초 동안 다시 나오는지 보며 거듭 내린다.
+    대화창은 닫지 않는다 — 최소화로 열려 있으면 다음부터는 방 열기 없이 Enter만으로 0.1초 안팎에 나간다.
+    """
+    end = time.perf_counter() + settle
+    while True:
+        if not user32.IsIconic(chat_hwnd):
+            user32.ShowWindow(chat_hwnd, 7)
+        f = user32.GetForegroundWindow()
+        if fg_before and fg_before not in (chat_hwnd, main_hwnd) and f != fg_before and f in (chat_hwnd, main_hwnd, None, 0):
+            user32.SetForegroundWindow(fg_before)
+        if time.perf_counter() >= end:
+            return
+        time.sleep(0.01)
+
+
 # ---------------------------------------------------------------- 방 열기
 def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float = 3.0,
               search_settle: float = 0.4) -> dict:
@@ -377,32 +399,52 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
         r["ok"] = True
         r["dry_run"] = True
         return r
-    # 트레이로 내려가 있으면 복원(숨김이면 검색이 안 먹는 경우가 있다). 좌표·마우스는 쓰지 않는다.
-    if not user32.IsWindowVisible(main) or user32.IsIconic(main):
-        user32.ShowWindow(main, 9); user32.ShowWindow(main, 5); time.sleep(0.4)
+    # 실측(나와의 채팅): 메인 창이 숨김·최소화인 채로도 검색칸에 이름+Enter를 넣으면 방이 열린다. 그래서 먼저 메인 창을
+    #  건드리지 않고 해 보고(1차), 안 열릴 때만 활성화 없이 꺼내서 다시 한다(2차: 최소화면 SW_SHOWNOACTIVATE 4,
+    #  숨김이면 SW_SHOWNA 8). 전에는 늘 SW_RESTORE·SW_SHOW로 꺼내서 카톡이 앞으로 나왔다. 좌표·마우스는 쓰지 않는다.
     before = {w["hwnd"] for w in list_chat_windows(pids)}
+    fg_before = user32.GetForegroundWindow()
     t = time.perf_counter()
     hwnd = None
-    for i, edit in enumerate(edits):
-        try:
-            set_text(edit, room_name)
-        except KakaoWindowError:
-            continue
-        time.sleep(search_settle)
-        press_enter(edit)
-        hwnd = _wait(lambda: find_chat_window(room_name, pids), max(1.0, timeout / len(edits)), 0.02)
-        try:
-            set_text(edit, "")
-        except KakaoWindowError:
-            pass
+    for attempt in (1, 2):
+        if attempt == 2:
+            if user32.IsIconic(main):
+                user32.ShowWindow(main, 4); r["main_restored"] = "minimized"; time.sleep(0.4)
+            elif not user32.IsWindowVisible(main):
+                user32.ShowWindow(main, 8); r["main_restored"] = "hidden"; time.sleep(0.4)
+            else:
+                break   # 메인 창이 이미 보이는 상태였다 → 다시 해도 같다
+        for i, edit in enumerate(edits):
+            try:
+                set_text(edit, room_name)
+            except KakaoWindowError:
+                continue
+            time.sleep(search_settle)
+            press_enter(edit)
+            hwnd = _wait(lambda: find_chat_window(room_name, pids), max(1.0, timeout / len(edits)), 0.005)
+            if hwnd:
+                _tuck_away(hwnd, fg_before, main)
+            try:
+                set_text(edit, "")
+            except KakaoWindowError:
+                pass
+            if hwnd:
+                r["search_edit"] = edit
+                r["search_edit_index"] = i
+                break
         if hwnd:
-            r["search_edit"] = edit
-            r["search_edit_index"] = i
             break
+    r["open_attempts"] = attempt
     r["timings_ms"]["open_wait"] = _ms(t)
     new = [w for w in list_chat_windows(pids) if w["hwnd"] not in before and w["title"].strip() != room_name.strip()]
     if hwnd:
         r.update(ok=True, hwnd=hwnd, already_open=False)
+        if r.get("main_restored") == "minimized":
+            user32.ShowWindow(main, 7)
+        elif r.get("main_restored") == "hidden":
+            user32.ShowWindow(main, 0)
+        _tuck_away(hwnd, fg_before, main, settle=0.0)
+        r["minimized_after_open"] = bool(user32.IsIconic(hwnd))
     else:
         r["error"] = "방이 안 열림(어느 Edit로도)" if not new else f"다른 방이 열림: {[w['title'] for w in new]} (닫음)"
         for w in new:  # 비슷한 이름이 잘못 열렸으면 닫는다
@@ -432,6 +474,21 @@ def deliver(input_hwnd: int, text: str, confirm_timeout: float = 1.0, timings: d
         set_text(input_hwnd, "")
         return {"ok": False, "error": f"넣은 글이 다르게 읽힘: {got!r}", "timings_ms": tm}
     t = time.perf_counter()
+    # 실측(나와의 채팅): EM_REPLACESEL로 넣은 글은 입력칸에 Enter만 보내도 전송된다 — 창이 최소화된 채로 0.1초 안팎,
+    # 창을 띄우지 않고 포커스도 안 바뀐다. 버튼 클릭은 최소화 창을 복원해야 해서 카톡이 앞으로 나왔다.
+    # 그래서 Enter를 먼저 쓰고, 0.6초 안에 입력칸이 안 비면(글이 그대로일 때만) 버튼 클릭으로 넘어간다.
+    try:
+        press_enter(input_hwnd)
+        if _wait(lambda: is_empty_input(get_text(input_hwnd)), min(confirm_timeout, 0.6)):
+            tm["send_enter"] = _ms(t)
+            tm["clicks"] = 0
+            return {"ok": True, "confirmed": True, "timings_ms": tm}
+    except KakaoWindowError:
+        pass
+    if not _same(get_text(input_hwnd), body):
+        tm["send_enter"] = _ms(t)
+        return {"ok": True, "confirmed": False, "timings_ms": tm}   # 글이 바뀜(사람이 입력 중 등) → 더 누르지 않음
+    tm["enter_failed"] = _ms(t)
     time.sleep(0.3)   # 글을 넣은 뒤 전송 버튼이 켜질 틈
     chat_hwnd = user32.GetAncestor(input_hwnd, GA_ROOT) or input_hwnd
     click_send(chat_hwnd)
