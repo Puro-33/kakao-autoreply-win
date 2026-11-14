@@ -345,7 +345,7 @@ try:
         M.deliver(ii, f"시간 재기 {i}\n둘째 줄", timings=tm)
         rows.append(tm)
     check(f"시간 재기 {N}회 모두 전송", len(fake.events("sent")) == 3 + N)
-    keys = ["find_window", "find_input", "read_draft", "set_text", "verify_text", "send_click", "confirm_cleared"]
+    keys = ["find_window", "find_input", "read_draft", "set_text", "verify_text", "send_enter"]   # 버튼 클릭 → Enter 전송
     print("\n--- 단계별 시간(ms, 가짜 창, %d회): 중앙값 / 최대" % N)
     tot = []
     for k in keys:
