@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-kakao_native — LDPlayer 없이, 이 PC에 로그인된 '본인' 카카오톡 데스크톱의
+kakao_native — 이 PC에 로그인된 '본인' 카카오톡 데스크톱의
 로컬 대화 DB를 직접 읽기 위한 모듈.
 
 범위 제한:

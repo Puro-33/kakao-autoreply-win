@@ -3,9 +3,6 @@
   "iris_url": "http://127.0.0.1:3001",
   "listen_host": "127.0.0.1",
   "listen_port": 5000,
-  "adb_path": "C:\\LDPlayer\\LDPlayer9\\adb.exe",
-  "adb_serial": "emulator-5554",
-  "iris_auto_restart": false,
   "bot_name": "클로드",
   "wake_words": [
     "클로드야",
@@ -113,10 +110,9 @@
   "calendar_model": "haiku",
   "_calendar_note": "(선택) claude.ai Google Calendar 커넥터로 바쁨/빔만 보고 일정 질문에 답한다. 켜면 갠톡에서 빈 시간이면 약속을 잡을 수 있다. 일정 제목은 상대에게 비공개",
   "_proxy_note": "open_chat_proxy_rooms: 주인 대신 고민·질문 글에 답글을 달 오픈채팅방 chat_id(기본 비움)",
-  "native_iris": true,
   "native_send_only_memo": true,
   "called_catchup_max_age_sec": 0,
   "_burst_guard_note": "꺼져 있던 동안 온 메시지는 다시 켜질 때 저장된 catchup_cursor 뒤부터 답한다. 오래 밀린 톡에 몰아 답하지 않게 하려면 켜기 전에 커서를 현재로 당긴다",
   "native_send_rooms_only": [],
-  "_native_note": "Windows 네이티브: iris_url=셔임(:3001), native_iris=true. native_send_only_memo=true면 나와의 채팅에만 보냄(시험 잠금). native_send_rooms_only에 chat_id를 넣으면 그 방에만 보냄. LDPlayer+Iris를 쓰면 iris_url=:3000, native_iris=false"
+  "_native_note": "iris_url=셔임 주소(:3001). native_send_only_memo=true면 나와의 채팅에만 보냄(시험 잠금). native_send_rooms_only에 chat_id를 넣으면 그 방에만 보냄"
 }

@@ -490,7 +490,7 @@ def push_delivery(d: dict, delivery: dict | None, now: float | None = None) -> t
         return True, f"카톡에 들어감({DELIV_HOW_KO.get(rec.get('how'), rec.get('how') or '확인')}, 보낸 {sent})"
     if st == "miss":
         return False, (f"카톡 DB에 없음(보낸 {sent}, 확인 {_hm(rec.get('miss_at'))}) — "
-                       "에뮬레이터 카톡 화면의 '!'·보안인증·로그인 확인")
+                       "PC 카카오톡 로그인·보안인증 확인")
     if st == "unknown":
         return None, f"확인 불가(Iris DB 조회 실패, 보낸 {sent}) — 미전달로 단정 안 함, 다음 점검에서 다시"
     return None, f"확인 대기(보낸 {sent}, 에코·카톡 DB로 확인 전)"

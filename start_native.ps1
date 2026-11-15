@@ -1,4 +1,4 @@
-﻿# 카톡 AI 봇 실행(LDPlayer 없이) — start.ps1(LDPlayer·Iris용)을 대신한다.
+﻿# 카톡 AI 봇 실행: iris_native 셔임 + bot.py 를 띄우고 죽으면 다시 띄운다.
 # 자동 시작을 원하면 작업 스케줄러에 'KakaoBot'(로그온 때)·'KakaoBotWatchdog'(주기적)으로 숨김 창 실행을 등록한다(README 참고).
 # Python: 기본은 py 런처의 3.12. 다른 해석기를 쓰려면 환경 변수 KAKAO_BOT_PYTHON 에 python.exe 경로를 넣는다.
 #   자동 시작 끄기: Disable-ScheduledTask KakaoBot; Disable-ScheduledTask KakaoBotWatchdog

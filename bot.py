@@ -1,6 +1,6 @@
 """카톡 AI 봇 (Iris + Claude CLI) — 오픈채팅 커뮤니티 봇 방식 참고.
 
-흐름: 카톡(LDPlayer) → Iris(웹훅) → 이 봇 → Claude CLI → Iris /reply → 카톡방
+흐름: PC 카카오톡 → iris_native 셔임(웹훅) → 이 봇 → Claude CLI → 셔임 /reply → 카톡방
 
 [누구나]
   <호출어> <질문>   예) 클로드야 소넷이랑 오푸스 차이?   — 등록한 방·갠톡·나와의 채팅에서 응답
@@ -102,7 +102,7 @@ def now_kst() -> dt.datetime:
 # 카톡으로 먼저 보내지 않는다(규칙). '!요약'에 대한 답장만 카톡으로 나간다.
 # 예외(11/09 OWNER 허락): OWNER 본인의 나와의 채팅에 하루 질문·일기 요청만 먼저 보낸다(diary_send, run_job의 memo_push).
 HEALTH_LOCK = threading.Lock()
-HEALTH: dict = {"iris_ok": None, "iris_down_since": None, "adb_ok": None,
+HEALTH: dict = {"iris_ok": None, "iris_down_since": None,
                 "claude_last_ok": None, "claude_last_err": None, "claude_err": "", "claude_auth": False,
                 "cal_last_sync": None, "cal_last_ok": None, "cal_ok": None, "cal_fail_streak": 0,
                 "last_reply": None}
@@ -259,8 +259,6 @@ def db(sql: str, bind: list | None = None) -> list[dict]:
         return rows if isinstance(rows, list) else []
     except Exception as e:  # noqa: BLE001
         log.warning("DB 조회 실패: %s", e)
-        if "10061" in str(e) or "refused" in str(e).lower():
-            refresh_ports("Iris 연결 거부")
         return []
 
 
@@ -271,8 +269,6 @@ def db_try(sql: str, bind: list | None = None) -> list[dict] | None:
         r = iris("/query", {"query": sql, "bind": [str(b) for b in (bind or [])]})
     except Exception as e:  # noqa: BLE001
         log.warning("DB 조회 실패(전달 확인): %s", e)
-        if "10061" in str(e) or "refused" in str(e).lower():
-            refresh_ports("Iris 연결 거부")
         return None
     if not isinstance(r, dict) or "raw" in r or r.get("error") or r.get("success") is False or "data" not in r:
         log.warning("DB 조회 응답 이상(전달 확인): %s", str(r)[:120])
@@ -281,25 +277,6 @@ def db_try(sql: str, bind: list | None = None) -> list[dict] | None:
     if rows is None:
         return []
     return [x for x in rows if isinstance(x, dict)] if isinstance(rows, list) else None
-
-
-_PORTS_AT = [0.0]
-
-
-def refresh_ports(why: str) -> None:
-    """adb forward(Iris 3000)·reverse(웹훅)를 되살린다. 다른 프로그램의 adb reconnect가 지우는 일이 있었다(11/08).
-    60초에 한 번만."""
-    if CFG.get("native_iris"):   # 11-13: PC 네이티브 셔임이면 adb·LDPlayer가 없다(포트 복구할 것 없음)
-        return
-    if time.time() - _PORTS_AT[0] < 60:
-        return
-    _PORTS_AT[0] = time.time()
-    try:
-        adb("forward", "tcp:3000", "tcp:3000")
-        adb("reverse", f"tcp:{CFG['listen_port']}", f"tcp:{CFG['listen_port']}")
-        log.warning("adb 포트 복구(%s)", why)
-    except Exception as e2:  # noqa: BLE001
-        log.warning("포트 복구 실패: %s", e2)
 
 
 # ───────────────────────── 상태 ─────────────────────────
@@ -2946,7 +2923,7 @@ def send_allowed(chat_id: str) -> bool:
 
 
 # ───────────────────────── 실제 전달 확인(11/09 23:51 사고 뒤) ─────────────────────────
-# Iris /reply 성공(200)은 '카톡 앱에 넘겼다'까지다. 11/09 23:51 에뮬레이터 카톡이 '받기는 되고 보내기는 막힌' 상태라
+# Iris /reply 성공(200)은 '카톡 앱에 넘겼다'까지다. 11/09 23:51 카톡이 '받기는 되고 보내기는 막힌' 상태라
 # 일기 요청이 '보내는 중'으로 멈췄는데 봇은 '보냄'으로 기록했다(카톡 DB에는 없음). 이제 보낸 글마다 '전달 대기'를 남기고
 #  (a) 그 글이 내 계정 글로 되돌아오면(웹훅·보충) 전달됨, (b) health 점검(5분마다)에서 보낸 지 delivery_check_sec(180초)
 #  넘은 것은 카톡 DB(chat_logs·chat_rooms)로 확인한다. 미전달이면 PC 토스트·status.json kakao_send·logs/daily·(일반 답이면)
@@ -3114,7 +3091,7 @@ def delivery_line(st: dict | None = None) -> str:
         return (f"카톡 보내기: 막힘({(st['since'] or '')[5:16]}부터, 미전달 {st['undelivered_n']}개)"
                 + (" — 새 자동답·나와의 채팅 질문은 안 보내고 할 일로" if st["holding"]
                    else " — send_block_on_undelivered=false라 그래도 보냄")
-                + ". 에뮬레이터 카톡 '!'·보안인증·로그인 확인, 풀었으면 나와의 채팅에 !상태 → 그 답이 들어가면 자동 회복")
+                + ". PC 카카오톡 로그인·보안인증 확인, 풀었으면 나와의 채팅에 !상태 → 그 답이 들어가면 자동 회복")
     bits = [f"{k} {st[v]}" for k, v in (("확인 대기", "waiting_n"), ("확인 불가", "unknown_n"),
                                         ("미전달", "undelivered_n"), ("지연 전달", "late_delivered_n")) if st[v]]
     if st["ok"] is None:
@@ -3142,7 +3119,7 @@ def send_hold_why(chat_id: str, dkind: str) -> str:
 
 def send_held(job: dict, chat_id: str, dkind: str, why: str, todo: str | None = None) -> None:
     """막힘이라 안 보낸 전송 → 할 일(일반 답: 상대 이름·'봇 답이 안 나감, 직접 답하기' / push: 질문·일기 요청)·하루 기록.
-    에뮬레이터에 미전송 글이 쌓였다가 몇 시간 뒤 한꺼번에 나가는 것을 막는다."""
+    카톡에 미전송 글이 쌓였다가 몇 시간 뒤 한꺼번에 나가는 것을 막는다."""
     now = time.time()
     with S.lock:
         D = _deliv()
@@ -3188,7 +3165,7 @@ def _deliv_after(changes: list, before: bool, after: bool, via: str = "") -> Non
         st = delivery_status()
         last = max(new_miss, key=lambda r: float(r.get("at") or 0))
         notify("kakao_send", "카톡 봇: 봇 답이 카톡에서 실제로 안 나감",
-               f"에뮬레이터 카톡 화면의 '!'·보안인증·로그인 확인. 미전달 {st['undelivered_n']}개"
+               f"PC 카카오톡 로그인·보안인증 확인. 미전달 {st['undelivered_n']}개"
                f"(마지막 {hm(last.get('at'))} {room_label(last['chat'])})"
                + (". 그동안 새 자동답·나와의 채팅 질문은 안 보내고 할 일로 돌려요" if after and st["holding"] else "")
                + ". 풀었으면 나와의 채팅에 !상태(그 답이 들어가면 자동 회복)")
@@ -4418,7 +4395,7 @@ def owner_command(text: str, chat_id: str, room_name: str, privileged: bool = Tr
         ok_ko = {True: "정상", False: "이상", None: "모름"}
         say(f"🤖 상태\n등록 방 {len(S.persist['registered_rooms'])}개 / 오늘 질문 {sum(q.get('counts', {}).values())}건\n"
             f"최근 1시간 답 {len(S.reply_times)}건 / 대기 {JOBS.qsize()}건\n"
-            f"Iris {ok_ko[st['iris_ok']]} / adb {ok_ko[st['adb_ok']]} / Claude {ok_ko[st['claude_ok']['ok']]}"
+            f"셔임 {ok_ko[st['iris_ok']]} / Claude {ok_ko[st['claude_ok']['ok']]}"
             f" / 캘린더 {ok_ko[st['calendar_ok']['ok']]} / 열린 할 일 {st['todo_open']}건\n"
             f"{delivery_line(st['kakao_send'])}\n"
             f"브리핑: !브리핑 요청 때만(예약 없음), 주제: "
@@ -4761,28 +4738,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ───────────────────────── Iris 감시·브리핑 예약 ─────────────────────────
-def adb(*args: str, timeout: float = 20) -> subprocess.CompletedProcess:
-    return subprocess.run([CFG["adb_path"], "-s", CFG["adb_serial"], *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=timeout,
-                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-
-
-def restart_iris() -> None:
-    log.warning("Iris 재시작 시도")
-    try:
-        adb("forward", "tcp:3000", "tcp:3000")
-        adb("reverse", f"tcp:{CFG['listen_port']}", f"tcp:{CFG['listen_port']}")
-        adb("shell", "su -c 'pkill -f party.qwer.iris'")
-        subprocess.Popen([CFG["adb_path"], "-s", CFG["adb_serial"], "shell",
-                          "su -c 'nohup app_process -cp /data/local/tmp/Iris.apk / party.qwer.iris.Main "
-                          "> /data/local/tmp/iris.log 2>&1 &'"],
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        time.sleep(8)
-        set_endpoint()
-    except Exception as e:  # noqa: BLE001
-        log.error("Iris 재시작 실패: %s", e)
-
-
 def set_endpoint() -> None:
     url = f"http://127.0.0.1:{CFG['listen_port']}/webhook"
     iris("/config/endpoint", {"endpoint": url})
@@ -4817,10 +4772,7 @@ def health_tick(now: float | None = None, probe=None) -> None:
         log.warning("Iris 응답 없음(%d회): %s", S.iris_fail, e)
         if now - since >= IRIS_DOWN_ALERT_SEC:
             notify("iris_down", "카톡 봇: Iris가 멈춤",
-                   f"{(now - since) / 60:.0f}분째 Iris 복구가 안 돼요. LDPlayer·카톡·Iris를 확인하세요.")
-        if probe is None and S.iris_fail >= 3 and CFG["iris_auto_restart"]:
-            restart_iris()
-            S.iris_fail = 0
+                   f"{(now - since) / 60:.0f}분째 셔임(iris_native)이 응답하지 않아요. PC 카카오톡과 start_native를 확인하세요.")
     # 11/09 실제 전달 확인: 보낸 지 delivery_check_sec 넘은 '전달 대기'를 카톡 DB로(5분마다, 아래 루프 점검보다 먼저)
     if probe is None and now - DELIVERY_AT[0] >= float(CFG.get("delivery_tick_sec", DELIVERY_TICK_SEC)):
         DELIVERY_AT[0] = now
@@ -4884,8 +4836,6 @@ def catchup_once(cursor: int) -> int:
                 log.info("보충 건너뜀: [%s] _id=%s 뒤에 OWNER이 직접 답함", chat_id, rid)
                 continue
         log.debug("웹훅 누락 보충: [%s] _id=%s (%.0f초 전)", chat_id, rid, age)
-        if not filled:
-            refresh_ports("웹훅 누락")
         filled.append((chat_id, age))
         sender = (S.names.get(user_id) or user_name(chat_id, user_id)) if user_id != S.bot_id else "Iris"
         evt = {"msg": r.get("message") or "", "room": room_label(chat_id), "sender": sender, "catchup": True,
@@ -4954,7 +4904,7 @@ def keep_awake_loop() -> None:
     """충전기가 연결돼 있고 봇이 도는 동안만 Windows 유휴 절전(최신 대기 모드)을 막는다(사용자 지시 11/08).
     배터리로 바뀌면 요청을 풀어 평소처럼 잠든다. 전원 설정은 바꾸지 않고, 봇이 끝나면 요청도 사라진다.
     화면 꺼짐은 막지 않으며 덮개를 닫거나 전원 버튼을 누르면 잠든다.
-    (11/08 03:34~10:23 KST 절전 중 에뮬레이터가 멈춰 갠톡을 놓친 일 이후 추가)"""
+    (11/08 03:34~10:23 KST 절전 중 수신이 멈춰 갠톡을 놓친 일 이후 추가)"""
     try:
         import ctypes
         k32 = ctypes.windll.kernel32
@@ -5099,14 +5049,6 @@ def status_file() -> Path:
     return LOG_DIR / "status.json"
 
 
-def adb_check() -> bool:
-    """에뮬레이터가 adb에 붙어 있는가(adb get-state == device). 읽기만 한다."""
-    try:
-        return adb("get-state", timeout=10).stdout.strip() == "device"
-    except Exception:  # noqa: BLE001
-        return False
-
-
 def status_snapshot() -> dict:
     with HEALTH_LOCK:
         h = dict(HEALTH)
@@ -5121,7 +5063,6 @@ def status_snapshot() -> dict:
     cal_on = bool(CFG.get("calendar_mode", True))
     return {"updated": _iso(now), "version": VERSION,
             "iris_ok": h["iris_ok"], "iris_down_since": _iso(h["iris_down_since"]),
-            "adb_ok": h["adb_ok"],
             "claude_ok": {"ok": cok, "last_ok": _iso(lo), "last_error": _iso(le),
                           "error": (h["claude_err"] or "")[:200] if le else "", "auth_problem": bool(h["claude_auth"]),
                           "limited": bool(lim), "limited_until": _iso(lim)},
@@ -5135,7 +5076,7 @@ def status_snapshot() -> dict:
 def status_tick(force: bool = False) -> bool:
     """logs/status.json을 쓴다: 상태(ok 표시·할 일 수·한도)가 바뀌었거나 5분이 지났거나 force일 때. 썼으면 True."""
     st = status_snapshot()
-    sig = json.dumps([st["iris_ok"], st["adb_ok"], st["claude_ok"]["ok"], st["claude_ok"]["limited_until"],
+    sig = json.dumps([st["iris_ok"], st["claude_ok"]["ok"], st["claude_ok"]["limited_until"],
                       st["calendar_ok"]["ok"], st["todo_open"], st["kakao_send"]["ok"], st["kakao_send"]["undelivered_n"]])
     with _STATUS_LOCK:
         if not force and sig == _STATUS["sig"] and time.time() - _STATUS["at"] < STATUS_EVERY_SEC:
@@ -5150,12 +5091,8 @@ def status_tick(force: bool = False) -> bool:
 
 
 def status_loop() -> None:
-    last_adb = 0.0
     while True:
         try:
-            if time.time() - last_adb >= STATUS_EVERY_SEC:
-                last_adb = time.time()
-                health_set(adb_ok=adb_check())
             status_tick()
         except Exception:  # noqa: BLE001
             log.exception("상태 파일 오류")
@@ -5268,7 +5205,7 @@ def make_digest(date: str | None = None) -> tuple[Path, dict]:
         st = status_snapshot()
         ko = {True: "정상", False: "이상", None: "모름"}
         L += ["", "## 지금 상태",
-              f"- Iris {ko[st['iris_ok']]} / adb {ko[st['adb_ok']]} / Claude {ko[st['claude_ok']['ok']]}"
+              f"- 셔임 {ko[st['iris_ok']]} / Claude {ko[st['claude_ok']['ok']]}"
               + (f"(한도, {st['claude_ok']['limited_until']}까지)" if st['claude_ok']['limited'] else "")
               + f" / 캘린더 {ko[st['calendar_ok']['ok']]}",
               f"- {delivery_line(st['kakao_send'])}",

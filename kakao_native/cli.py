@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 이 PC·본인 계정 전용: 실행 중인 KakaoTalk.exe 에서 키를 복원해
-로컬 chatLogs_*.edb 를 LDPlayer 없이 직접 읽는 end-to-end 확인 도구.
+로컬 chatLogs_*.edb 를 직접 읽는 end-to-end 확인 도구.
 
 실제 메시지 전송은 하지 않는다. 키/메시지 본문은 콘솔에 날것으로 찍지 않는다.
 사용:  py -3.12 -m kakao_native.cli            (최근 대화 방 하나로 자가검증)
@@ -205,7 +205,7 @@ def main(argv=None) -> int:
                     print(f"    [{tsv}] author={r.get('authorId')}: {r.get('message')!r}")
             else:
                 print(f"  {os.path.basename(path)}: 테이블 {len(info['tables'])}종, 대화 {info.get('chat_table')} (행 {dict(info['tables']).get('chatLogs','?')})")
-        print(f"\n읽기 성공 {ok}개. LDPlayer 없이 v2 일괄 키 복구 성공.")
+        print(f"\n읽기 성공 {ok}개. v2 일괄 키 복구 성공.")
         return 0
 
     if args.schema_db:  # 특정 DB의 스키마만(방목록·사용자 DB 매핑용). 본문·행 값은 안 읽는다.
@@ -264,7 +264,7 @@ def main(argv=None) -> int:
                     else:
                         preview[k] = f"<{type(v).__name__}>"
                 print("   ", preview)
-        print("\nLDPlayer 없이 본인 로컬 DB 직접 읽기 성공.")
+        print("\n본인 로컬 DB 직접 읽기 성공.")
         return 0
 
     print("시도한 방들에서 키를 찾지 못했습니다. 카카오톡에서 대화방을 열어 두고 재시도하세요.")
