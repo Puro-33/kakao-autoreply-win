@@ -1,5 +1,4 @@
-"""Synthetic memory only; all Win32 access is replaced before memkey import."""
-import ctypes
+"""Synthetic memory only; memkey's kernel32 is replaced for the duration of each test."""
 import importlib
 from dataclasses import replace
 from types import SimpleNamespace
@@ -17,10 +16,10 @@ class NoWin32:
 
 @pytest.fixture
 def scanner(monkeypatch):
-    blocked = NoWin32()
-    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **kw: blocked, raising=False)
+    # Import first: importing under a patched WinDLL would leave the blocked object in the module for good
+    # (monkeypatch restores to what it saw), and later test files that use memkey would fail.
     module = importlib.import_module("kakao_native.memkey")
-    monkeypatch.setattr(module, "kernel32", blocked)
+    monkeypatch.setattr(module, "kernel32", NoWin32())
     return module
 
 
