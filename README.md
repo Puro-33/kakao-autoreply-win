@@ -3,8 +3,12 @@
 **PC 카카오톡(Windows)만으로 돌아가는 AI 카톡 자동 답장 봇과 명령줄 도구.**
 An AI auto-reply bot and CLI for KakaoTalk on Windows — no Android emulator needed.
 
-> **강의**: 이 봇을 7일 동안 Claude Code에게 시켜서 만든 과정을 8회차 영상과 실습으로 정리했습니다. → **https://kakao-bot-class.pages.dev**
-> Course (Korean): how this bot was built in 7 days by directing Claude Code. → https://kakao-bot-class.pages.dev
+> **따라 하기용 프롬프트 묶음(무료)**: 이 저장소를 받아 봇을 켜기까지, Claude Code에 순서대로 붙여 넣는 프롬프트 11개입니다.
+> 설치 → 읽기 확인 → 나와의 채팅 전송 → 내 이름 넣기 → 봇 켜기 → 답장 다듬기 → 자동 시작 → 잠금 풀기 전 점검, 그리고 막혔을 때.
+> 강의 사이트에 가입하면 받을 수 있습니다(결제 불필요). → **https://kakao-bot-class.pages.dev**
+>
+> **강의**: 이 봇을 Claude Code에게 시켜서 만든 과정을 세션 기록 원문으로 정리했습니다. 12회차와 실습, 제가 친 지시 163개가 그대로 나옵니다. 1회차는 가입하면 무료입니다.
+> Free prompt pack and course (Korean): 11 copy-paste prompts for Claude Code that take you from `git clone` to a running bot. → https://kakao-bot-class.pages.dev
 
 > [!NOTE]
 > 이 프로젝트는 **내 PC에 있는 내 카카오톡 로컬 DB를 읽고**, **내 PC 카카오톡 창에 글을 넣어** 동작합니다.
