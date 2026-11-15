@@ -219,8 +219,9 @@ Iris 설치는 Iris 저장소 안내를 따르세요(이 저장소에는 Iris가
   `iris_native.py`는 Iris의 HTTP 인터페이스 모양만 맞춘 독자 구현입니다.
 - SQLCipher 형식은 공개 문서([SQLCipher 설계](https://www.zetetic.net/sqlcipher/design/), [SQLite 파일 형식](https://sqlite.org/fileformat.html))를 따라 직접 구현했습니다.
 - 저장소 구성(README 순서, 명령 체계)은 맥용 [kakaocli](https://github.com/silver-flight-group/kakaocli) (MIT)를 참고했습니다. 코드·문장은 가져오지 않았습니다.
-- 최신 키 저장소(v2) 구조에 관한 공개 연구가 있으나, 그 연구는 **오픈소스 배포를 금지하는 라이선스**를 달고 있어
-  그 연구에 근거한 `keystore_v2.py`는 이 저장소에 넣지 않았습니다.
+- **고맙습니다**: [getCurrentThread/kakaotalk-windows-forensics](https://github.com/getCurrentThread/kakaotalk-windows-forensics) (2026년 10월 공개).
+  PC 카카오톡 키 저장소(v2) 구조를 밝힌 연구입니다. 제가 마지막으로 읽은 자료였고, 이분 덕분에 구현이 가능했습니다.
+  다만 그 연구는 **오픈소스 배포를 금지하는 라이선스**를 달고 있어, 그 연구에 근거한 `keystore_v2.py`는 이 저장소에 넣지 않았습니다.
 - LDPlayer·카카오톡·Claude Code는 이 저장소에 포함되지 않으며 각자의 약관을 따릅니다.
 
 ---
