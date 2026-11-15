@@ -23,10 +23,9 @@ An AI auto-reply bot and CLI for KakaoTalk on Windows — no Android emulator ne
 
 ### 왜 만들었나
 
-- 기존 카톡 자동화는 대부분 **안드로이드 에뮬레이터(LDPlayer 등) + 루팅 + Iris** 조합이 필요했습니다. 무겁고, 노트북 절전 후 자주 끊깁니다.
+- 기존 카톡 자동화는 대부분 **안드로이드 에뮬레이터 + 루팅** 조합이 필요했습니다. 무겁고, 노트북 절전 후 자주 끊깁니다.
 - 맥에는 로컬 DB를 읽는 CLI가 있지만, **Windows에서 읽기·보내기·AI 자동 답장을 한 번에** 하는 공개 도구는 찾기 어려웠습니다.
 - 그래서 PC 카카오톡 하나로 **읽기(로컬 DB) → 판단(Claude CLI + 코드 관문) → 보내기(PC 창)** 를 잇는 경로를 만들었습니다.
-  기존 LDPlayer + Iris 경로도 선택 사항으로 그대로 쓸 수 있습니다.
 
 ## 시작하기
 
@@ -102,7 +101,7 @@ py -3.12 kakaowin.py send --me "테스트" --yes            # 나와의 채팅�
 
 ### 실행
 
-`config.json`에서 `iris_url`을 `http://127.0.0.1:3001`, `native_iris`를 `true`로 둡니다(예시 기본값).
+`config.json`의 `iris_url`은 `http://127.0.0.1:3001`로 둡니다(예시 기본값).
 **`native_send_only_memo`는 예시 기본값이 `true`** 라서 처음에는 나와의 채팅에만 답을 보냅니다.
 나와의 채팅으로 충분히 시험한 뒤 `false`로 바꾸고, 원하면 `native_send_rooms_only`에 허용할 방 chat_id만 넣으세요.
 
@@ -138,19 +137,11 @@ powershell -ExecutionPolicy Bypass -File start_native.ps1       # 꺼지면 다�
  pc_kakao_send.py ── PC 카톡 창 찾기/열기 → 입력칸에 글 → 전송 버튼 → 카톡 DB로 전달 확인
 ```
 
-### 선택: LDPlayer + Iris 경로
-
-에뮬레이터를 이미 쓰고 있다면 원래 경로도 됩니다. LDPlayer 9(루트, 로컬 ADB) 안의 카카오톡을
-[Iris](https://github.com/dolidolih/Iris)가 감시하고 `bot.py`가 `:3000`의 Iris에 붙습니다.
-`config.json`에서 `iris_url`을 `http://127.0.0.1:3000`, `native_iris`를 `false`로 바꾸고
-`powershell -ExecutionPolicy Bypass -File start.ps1` 로 실행합니다(adb 포트 연결·Iris 기동·웹훅 등록 포함).
-Iris 설치는 Iris 저장소 안내를 따르세요(이 저장소에는 Iris가 들어 있지 않습니다).
-
 ### 설정 (`config.json`)
 
 | 키 | 뜻 |
 |---|---|
-| `iris_url`, `native_iris` | 붙을 서버. 네이티브는 `http://127.0.0.1:3001` + `true`, LDPlayer는 `:3000` + `false` |
+| `iris_url` | 봇이 붙을 셔임 주소. 기본 `http://127.0.0.1:3001` |
 | `native_send_only_memo` | `true`면 나와의 채팅에만 보냄(시험 잠금, 예시 기본값 `true`) |
 | `native_send_rooms_only` | 비어 있지 않으면 이 chat_id 방에만 보냄 |
 | `wake_words`, `trigger_prefix` | 단톡·오픈채팅에서 봇을 부르는 말 |
@@ -188,7 +179,7 @@ Iris 설치는 Iris 저장소 안내를 따르세요(이 저장소에는 Iris가
   `kakao_native/memkey.py`가 실행 중인 내 `KakaoTalk.exe` 메모리에서 키 후보를 모아 각 DB 첫 페이지의 HMAC으로 검증하고,
   `sqlcipher4.py`가 페이지를 복호화합니다(체크포인트 전 최근 글이 있는 `-wal`도 반영). 원본 DB는 읽기만 합니다.
 - **셔임**: `iris_native.py`가 복호화한 내용을 Iris 스키마(`chat_logs`, `chat_rooms`, `db2.friends` …)의 인메모리 SQLite로 옮겨
-  `bot.py`가 원래 쓰던 `/query`·`/reply`·웹훅 인터페이스를 그대로 제공합니다. 그래서 봇 로직은 LDPlayer 경로와 같습니다.
+  `bot.py`가 쓰는 `/query`·`/reply`·웹훅 인터페이스를 제공합니다.
 - **보내기**: `pc_kakao_send.py`가 PC 카톡의 채팅창(없으면 검색으로 열기) → 입력칸(`RICHEDIT50W`) → `WM_SETTEXT` → 전송 버튼 클릭 순으로 보냅니다.
 - **선택 모듈 `keystore_v2.py`**: 최신 PC 카톡의 키 저장소(`appstate.dat`)로 전 방 키를 한 번에 유도하는 모듈 자리가 있습니다.
   이 저장소에는 들어 있지 않습니다([라이선스·크레딧](#라이선스크레딧)). 없으면 메모리 키 방식(기본)으로 동작합니다.
@@ -225,7 +216,7 @@ Iris 설치는 Iris 저장소 안내를 따르세요(이 저장소에는 Iris가
 - **고맙습니다**: [getCurrentThread/kakaotalk-windows-forensics](https://github.com/getCurrentThread/kakaotalk-windows-forensics) (2026년 10월 공개).
   PC 카카오톡 키 저장소(v2) 구조를 밝힌 연구입니다. 제가 마지막으로 읽은 자료였고, 이분 덕분에 구현이 가능했습니다.
   다만 그 연구는 **오픈소스 배포를 금지하는 라이선스**를 달고 있어, 그 연구에 근거한 `keystore_v2.py`는 이 저장소에 넣지 않았습니다.
-- LDPlayer·카카오톡·Claude Code는 이 저장소에 포함되지 않으며 각자의 약관을 따릅니다.
+- 카카오톡·Claude Code는 이 저장소에 포함되지 않으며 각자의 약관을 따릅니다.
 
 ---
 
@@ -236,7 +227,7 @@ signed-in user's own local KakaoTalk PC databases (SQLCipher 4; keys are recover
 `KakaoTalk.exe` and cached with Windows DPAPI), exposes them through an Iris-compatible local HTTP shim, lets `bot.py`
 draft replies with the Claude Code CLI behind code-enforced hold rules (no unsolicited messages,
 money/appointments/personal data/decisions are held for the owner), and sends by typing into the KakaoTalk PC window,
-then confirms delivery in the local database. No Android emulator is required; the LDPlayer + Iris route remains optional.
+then confirms delivery in the local database. No Android emulator is required.
 `kakaowin.py` offers `status`, `chats`, `messages`, `scan`, `send` (dry-run unless `--yes`; `--me` for self-chat), `serve` and `bot`.
 Defaults are conservative: sending is locked to the self-chat until `native_send_only_memo` is set to `false`.
 It does not call Kakao servers or reimplement the LOCO protocol. Not affiliated with Kakao Corp.; automating a personal

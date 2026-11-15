@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""카톡 봇을 LDPlayer 없이 돌린다: iris_native 셔임(PC DB 수신·PC 창 전송) + bot.py.
+"""카톡 봇을 돌린다: iris_native 셔임(PC DB 수신·PC 창 전송) + bot.py.
 
     py -3.12 start_native.py            (또는  py -3.12 kakaowin.py bot)
 
 흐름: PC 카톡 DB → iris_native(폴링·/query·/reply) → bot.py(답장 판정) → PC 카톡 창.
-config.json 의 iris_url 은 셔임 주소(http://127.0.0.1:3001)여야 하고 native_iris 는 true 여야 한다.
+config.json 의 iris_url 은 셔임 주소(http://127.0.0.1:3001)여야 한다.
 주의: 실제 자동응답이 시작된다. PC 카카오톡이 켜져(로그인) 있어야 한다.
 """
 from __future__ import annotations
@@ -28,8 +28,6 @@ def main(keys_mode: str = "auto") -> int:
     if not cfg_path.exists():
         print("config.json 이 없습니다. config.example.json 을 복사해 만드세요."); return 1
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    if not cfg.get("native_iris"):
-        print("config.json 의 native_iris 가 true 가 아닙니다(LDPlayer 경로라면 start.ps1 을 쓰세요)."); return 1
     port = int(cfg.get("iris_url", "http://127.0.0.1:3001").rsplit(":", 1)[1].split("/")[0])
     threading.Thread(target=lambda: iris_native.serve(port=port, keys_mode=keys_mode), daemon=True).start()
     for _ in range(180):

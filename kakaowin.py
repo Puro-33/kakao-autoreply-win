@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""kakaowin — PC 카카오톡(Windows)용 명령줄 도구. LDPlayer·에뮬레이터 없이 내 PC 카톡만 쓴다.
+"""kakaowin — PC 카카오톡(Windows)용 명령줄 도구. 내 PC 카톡만 쓴다(에뮬레이터 불필요).
 
     py -3.12 kakaowin.py status                       # 준비 상태(카톡 실행·계정 폴더·키·설정)
     py -3.12 kakaowin.py chats [--limit 30] [--json]  # 방 목록(최근순)

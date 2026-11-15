@@ -1,6 +1,6 @@
 """PC 카카오톡 창으로 메시지 보내기 (Win32 창 메시지, ctypes만 사용). 기본은 dry-run.
 
-Iris `/reply`(LDPlayer 안드로이드)를 대신해, 이 PC에서 돌아가는 PC 카카오톡의
+이 PC에서 돌아가는 PC 카카오톡의
 열린 채팅창 입력칸(RICHEDIT50W)에 글을 넣고 Enter를 '메시지로' 보낸다.
 마우스·키보드 입력(SendInput)이나 포커스 이동을 쓰지 않으므로 창이 뒤에 있어도 된다.
 

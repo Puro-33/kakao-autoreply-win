@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — LDPlayer 경로 제거
+
+- 안드로이드 에뮬레이터(LDPlayer) + Iris 경로를 지웠다. 남은 경로는 하나다: PC 카카오톡 로컬 DB를 복호화해 읽고, 창 메시지로 보낸다.
+- `start.ps1`(에뮬레이터 실행·adb 포트 연결·Iris 기동) 삭제. 실행은 `start_native.ps1` 또는 `kakaowin.py bot`.
+- `bot.py`에서 adb 호출(포트 복구, Iris 재시작, adb 상태 확인)을 걷어냈다. `!상태`와 요약의 'adb' 항목도 없앴다.
+- 설정 `adb_path`, `adb_serial`, `iris_auto_restart`, `native_iris` 삭제(남아 있어도 무시).
+
 ## 0.2.0 — 말투 학습 제거, 읽기·전송 다듬기
 
 - 말투 학습을 뺌: `voice_corpus.py`, `style_profile.py`, `learn_room.py`와 그 평가 스크립트를 지우고, 답을 주인 말투로 고쳐 쓰던

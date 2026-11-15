@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Iris 호환 네이티브 셔임 — LDPlayer 없이 PC 카카오톡만으로 bot.py 를 돌린다.
+"""Iris 호환 셔임 — PC 카카오톡만으로 bot.py 를 돌린다.
 
-bot.py 는 원래 안드로이드 에뮬레이터 안의 Iris 에 HTTP 로 붙는다(/query·/reply·웹훅).
-이 모듈은 같은 HTTP 인터페이스를 흉내 내되 속을 PC 카카오톡으로 채운다:
+bot.py 는 Iris 형식의 HTTP 인터페이스(/query·/reply·웹훅)에 붙는다.
+이 모듈이 그 인터페이스를 제공하고 속은 PC 카카오톡으로 채운다:
   - /query : PC 카톡 로컬 DB(kakao_native.account)를 Iris 스키마(chat_logs, chat_rooms, db2.friends ...)로
              옮긴 인메모리 SQLite 에 SELECT 만 실행한다.
   - /reply : pc_kakao_send 로 PC 카톡 창에 직접 넣는다.
