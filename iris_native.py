@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Iris 호환 셔임 — PC 카카오톡만으로 bot.py 를 돌린다.
 
 bot.py 는 Iris 형식의 HTTP 인터페이스(/query·/reply·웹훅)에 붙는다.
@@ -63,11 +62,11 @@ class NativeIris:
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         self.last_by_room: dict[str, int] = {}
-        self.endpoint: str | None = None   # 봇이 /config/endpoint 로 알려 주는 웹훅 주소
+        self.endpoint: str | None = None
         self.rescan_sec = rescan_sec
         self._last_scan = 0.0
         self._mtimes: dict[str, float] = {}
-        self._seen: dict[str, tuple] = {}   # 방별 (마지막에 읽은 DB 파일의 수정 시각·크기, 그때의 마지막 logId)
+        self._seen: dict[str, tuple] = {}
         self._schema()
         self._load_static()
         self.acct.scan_rooms()
@@ -169,12 +168,11 @@ class NativeIris:
                     continue
                 first = cid not in self.last_by_room
                 last = self.last_by_room.get(cid, 0)
-                # 방 DB 파일이 지난번 읽은 그대로면 복호화하지 않는다. 예전에는 확인할 때마다 모든 방을 통째로 복호화했다
                 sig = self.acct.signature(cid)
                 if self._seen.get(cid) == (sig, last):
                     continue
                 rows = self.acct.read_since(cid, last)
-                if rows is None:   # 열지 못함(카톡이 쓰는 중 등): 읽은 것으로 치지 않고 다음 확인 때 다시 읽는다
+                if rows is None:
                     self.last_by_room.setdefault(cid, 0)
                     continue
                 if not rows:
@@ -182,10 +180,9 @@ class NativeIris:
                     self._seen[cid] = (sig, self.last_by_room[cid])
                     continue
                 self._insert_logs(cid, rows)
-                # 읽기 시작 전에 잰 값을 적는다: 읽는 동안 새 글이 붙었으면 다음 확인에서 값이 달라 다시 읽는다
                 self._seen[cid] = (sig, self.last_by_room[cid])
                 if first:
-                    continue   # 새로 읽게 된 방의 과거 글은 이벤트로 보내지 않는다
+                    continue
                 for r in rows:
                     uid, msg = str(r["authorId"]), r["message"] or ""
                     events.append({
@@ -253,7 +250,6 @@ class NativeIris:
                     r = PK.send(title, text, send=True, auto_open=True, **th)
             else:
                 r = sender(title, text, **th)
-            # 단계별 전송 시간을 남긴다(느린 구간을 찾는 용도). 글 내용·방 이름은 적지 않는다.
             try:
                 tm = dict(r.get("timings_ms") or {})
                 op = tm.pop("open_chat", None)
@@ -268,7 +264,6 @@ class NativeIris:
             return {"success": False, "native_pc": True, "error": f"pc_send: {type(e).__name__}"}
 
 
-# ───────────────────────── HTTP 셔임 ─────────────────────────
 def make_server(ni: NativeIris, port: int = 3001, verbose=print) -> ThreadingHTTPServer:
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -317,7 +312,7 @@ def serve(port: int = 3001, webhook: str | None = None, poll_sec: float = 2.0, v
     srv = make_server(ni, port, verbose)
     verbose(f"iris_native 셔임: http://127.0.0.1:{port}")
     if webhook:
-        ni.endpoint = webhook   # 아니면 봇이 /config/endpoint 로 알려 줄 때까지 기다린다
+        ni.endpoint = webhook
 
     def _poller():
         while True:

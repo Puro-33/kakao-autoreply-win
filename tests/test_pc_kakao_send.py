@@ -22,20 +22,19 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.stdout.reconfigure(encoding="utf-8")
 
 
-# ======================================================================== 가짜 카카오톡 (별도 프로세스)
 def run_fake(cfg: dict) -> None:
     import ctypes
     import ctypes.wintypes as W
 
     u = ctypes.WinDLL("user32", use_last_error=True)
     u.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
-    u.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))   # 실제 카톡처럼 DPI 인식(물리 좌표로 클릭 받음)
+    u.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     k = ctypes.WinDLL("kernel32", use_last_error=True)
     k.LoadLibraryW.argtypes = [W.LPCWSTR]
     k.LoadLibraryW.restype = W.HMODULE
     k.GetModuleHandleW.argtypes = [W.LPCWSTR]
     k.GetModuleHandleW.restype = W.HMODULE
-    if not k.LoadLibraryW("Msftedit.dll"):  # RICHEDIT50W
+    if not k.LoadLibraryW("Msftedit.dll"):
         raise SystemExit("Msftedit.dll 로드 실패")
     LRESULT = W.LPARAM
     WNDPROC = ctypes.WINFUNCTYPE(LRESULT, W.HWND, W.UINT, W.WPARAM, W.LPARAM)
@@ -69,7 +68,7 @@ def run_fake(cfg: dict) -> None:
     ES_MULTILINE, ES_WANTRETURN, ES_AUTOHSCROLL = 0x0004, 0x1000, 0x0080
     WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_CHAR = 0x0010, 0x0002, 0x0100, 0x0102
     hinst = k.GetModuleHandleW(None)
-    keep = []  # 콜백 참조 유지
+    keep = []
     state = {"main": None, "chats": {}, "old": {}}
     log_f = open(cfg["log"], "a", encoding="utf-8")
 
@@ -84,7 +83,7 @@ def run_fake(cfg: dict) -> None:
         return b.value
 
     def top_proc(h, msg, wp, lp):
-        if msg == 0x0202:   # WM_LBUTTONUP: 오른쪽 아래 전송 버튼 자리면 보냄(실제 카톡처럼 — 11-12부터 Enter 대신)
+        if msg == 0x0202:
             rc = W.RECT(); u.GetClientRect(h, ctypes.byref(rc))
             x, y = lp & 0xFFFF, (lp >> 16) & 0xFFFF
             hit = next(((n, e) for n, (ch, e) in state["chats"].items() if ch == h), None)
@@ -119,12 +118,12 @@ def run_fake(cfg: dict) -> None:
             if msg == WM_KEYDOWN and wp == 0x0D and not (u.GetKeyState(0x10) & 0x8000):
                 handler(hh)
                 return 0
-            if msg == WM_CHAR and wp == 0x0D:  # TranslateMessage가 만든 '\r' 삼킴(카톡처럼)
+            if msg == WM_CHAR and wp == 0x0D:
                 return 0
             return u.CallWindowProcW(state["old"][hh], hh, msg, wp, lp)
         cb = WNDPROC(proc)
         keep.append(cb)
-        state["old"][h] = u.SetWindowLongPtrW(h, -4, ctypes.cast(cb, ctypes.c_void_p))  # GWLP_WNDPROC
+        state["old"][h] = u.SetWindowLongPtrW(h, -4, ctypes.cast(cb, ctypes.c_void_p))
 
     def chat_enter(edit):
         room = next(n for n, (_, e) in state["chats"].items() if edit in e)
@@ -140,12 +139,12 @@ def run_fake(cfg: dict) -> None:
         for i in range(2 if name in cfg.get("two_inputs", []) else 1):
             e = u.CreateWindowExW(0, "RICHEDIT50W", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_WANTRETURN,
                                   5, 360 - i * 60, 330, 50, h, None, hinst, None)
-            if name not in cfg.get("enter_newline", []):   # 이 방은 Enter가 전송이 아니라 줄바꿈(RichEdit 기본 동작)
+            if name not in cfg.get("enter_newline", []):
                 subclass(e, chat_enter)
             edits.append(e)
         state["chats"][name] = (h, edits)
         if name in cfg.get("minimized", []):
-            u.ShowWindow(h, 6)  # SW_MINIMIZE
+            u.ShowWindow(h, 6)
         return h
 
     def search_enter(edit):
@@ -179,7 +178,6 @@ if len(sys.argv) >= 3 and sys.argv[1] == "--fake-kakao":
     raise SystemExit(0)
 
 
-# ======================================================================== 테스트 본체
 sys.path.insert(0, str(ROOT))
 import pc_kakao_send as M  # noqa: E402
 
@@ -222,7 +220,6 @@ class Fake:
         os.remove(self.log)
 
 
-# ---- 안전 가드: 글 넣기·Enter는 가짜 프로세스 창에만
 FAKE_PIDS: set[int] = set()
 _real_set, _real_enter = M.set_text, M.press_enter
 
@@ -245,7 +242,6 @@ def guarded_enter(hwnd):
 
 M.set_text, M.press_enter = guarded_set, guarded_enter
 
-# 이 파일은 send()에 실제 전송 플래그를 넘기지 않는다(문자열로 확인)
 check("테스트 소스에 실제 전송 호출 없음", ("send=" + "True") not in Path(__file__).read_text(encoding="utf-8"))
 
 ROOM = "__가짜방_테스트__"
@@ -256,7 +252,6 @@ fake = Fake(open=[ROOM, MINI, TWO, NL], minimized=[MINI], two_inputs=[TWO], ente
             searchable=["__검색방__", "가족여행", "가족"])
 try:
     P = fake.pids
-    # --- 창 찾기
     check("기본 범위(KakaoTalk.exe만)에서는 가짜 창 안 잡힘", M.find_chat_window(ROOM) is None)
     h = M.find_chat_window(ROOM, P)
     check("find_chat_window 찾음", bool(h))
@@ -270,7 +265,6 @@ try:
     se, how = M.find_search_edit(main)
     check("메인 창·검색칸(채팅 탭) 찾음", main == fake.main and se == fake.search and how.startswith("chain"), how)
 
-    # --- dry-run send
     r = M.send(ROOM, "안녕하세요 😀")
     check("dry-run 기본(범위 밖이라 창 없음)", not r["ok"] and r["dry_run"])
     r = M.send(ROOM, "안녕하세요 😀", pids=P)
@@ -280,7 +274,6 @@ try:
     check("probe_input: 넣고 읽고 되돌림, Enter 없음", r["ok"] and r.get("probe_ok") and M.get_text(inp) == ""
           and not fake.events("sent"), r)
 
-    # --- 거부 경로
     M.set_text(inp, "OWNER이 쓰던 글")
     r = M.send(ROOM, "봇 답", pids=P, probe_input=True)
     check("초안 있으면 거부·초안 보존", not r["ok"] and "쓰던 글" in r["error"] and M.get_text(inp) == "OWNER이 쓰던 글", r)
@@ -300,7 +293,6 @@ try:
     check("auto_open dry-run: 계획만, 방 안 열림", r["ok"] and r["dry_run"] and not fake.events("opened")
           and M.find_chat_window("__검색방__", P) is None, r)
 
-    # --- Enter 경로 (가짜 입력칸에만, deliver 직접)
     d = M.deliver(inp, "안녕하세요, 테스트입니다 😀")
     sent = fake.events("sent")
     check("deliver 한글·이모지 1건 전송·확인", d["ok"] and d["confirmed"] and len(sent) == 1
@@ -316,14 +308,12 @@ try:
     d = M.deliver(M.input_controls(hm)[0], "최소화 창에 전송")
     check("최소화 창에도 전송됨(가짜)", d["confirmed"] and fake.events("sent")[-1]["room"] == MINI)
 
-    # --- Enter가 줄바꿈으로 들어가는 창: 글을 되돌리고 버튼으로 보낸다(보내지 않고 성공이라 하지 않는다)
     inl = M.input_controls(M.find_chat_window(NL, P))[0]
     d = M.deliver(inl, "줄바꿈 창에 전송")
     last = fake.events("sent")[-1]
     check("Enter가 줄바꿈이면 버튼으로 전송·글은 그대로", d["ok"] and d["confirmed"] and d["timings_ms"].get("enter_newline")
           and last["room"] == NL and last["text"] == "줄바꿈 창에 전송" and len(fake.events("sent")) == 4, (d, last))
 
-    # --- open_chat
     r = M.open_chat("__검색방__", pids=P)
     check("open_chat dry-run: 검색칸 안 건드림", r["ok"] and r.get("dry_run") and M.get_text(fake.search) == ""
           and not fake.events("opened"), r)
@@ -339,7 +329,6 @@ try:
           and M.find_chat_window("가족여행", P) is None
           and any(e["room"] == "가족여행" for e in fake.events("closed")), r)
 
-    # --- 시간 재기 (가짜 창, 30회)
     N = 30
     rows, bad = [], []
     for i in range(N):
@@ -356,12 +345,12 @@ try:
         d = M.deliver(ii, f"시간 재기 {i}\n둘째 줄", timings=tm)
         if not (d["ok"] and d.get("confirmed")):
             bad.append((i, d, M.get_text(ii)))
-        tm.setdefault("send_enter", tm.get("send_click", 0.0))   # 버튼으로 넘어간 회차도 표에 넣는다
+        tm.setdefault("send_enter", tm.get("send_click", 0.0))
         rows.append(tm)
     check(f"시간 재기 {N}회 모두 확인됨", not bad, bad)
     n_sent = len(fake.events("sent"))
     check(f"시간 재기 {N}회 모두 전송", n_sent == 4 + N, f"{n_sent - 4}/{N}건, 버튼 전송 {sum('send_click' in r_ for r_ in rows)}회")
-    keys = ["find_window", "find_input", "read_draft", "set_text", "verify_text", "send_enter"]   # 버튼 클릭 → Enter 전송
+    keys = ["find_window", "find_input", "read_draft", "set_text", "verify_text", "send_enter"]
     print("\n--- 단계별 시간(ms, 가짜 창, %d회): 중앙값 / 최대" % N)
     tot = []
     for k in keys:
@@ -374,7 +363,6 @@ try:
 finally:
     fake.close()
 
-# ---- 실제 PC 카카오톡: 켜져 있을 때만 읽기 전용
 live = [p for p in subprocess.run(["tasklist", "/FI", "IMAGENAME eq KakaoTalk.exe", "/FO", "CSV", "/NH"],
                                    capture_output=True, text=True).stdout.splitlines() if "KakaoTalk" in p]
 if live:

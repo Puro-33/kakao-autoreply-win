@@ -16,8 +16,6 @@ class NoWin32:
 
 @pytest.fixture
 def scanner(monkeypatch):
-    # Import first: importing under a patched WinDLL would leave the blocked object in the module for good
-    # (monkeypatch restores to what it saw), and later test files that use memkey would fail.
     module = importlib.import_module("kakao_native.memkey")
     monkeypatch.setattr(module, "kernel32", NoWin32())
     return module
@@ -45,7 +43,6 @@ def test_deep_roundtrip_fake_memory(scanner, monkeypatch, preset, offset, page_s
     p = replace(preset, page_size=page_size)
     key = bytes(range(0x81, 0x81 + p.key_size))
     encrypted = encrypt_fixture(synthetic_sqlite(page_size, p.reserve), key, p)
-    # Key ends exactly at the blob boundary, including blobs shorter than 32 bytes.
     blobs = [bytes(64), bytes(offset) + key]
     opened, closed, reads = fake_memory(monkeypatch, scanner, blobs)
     rec = scanner.recover_key_for_db(
@@ -55,7 +52,7 @@ def test_deep_roundtrip_fake_memory(scanner, monkeypatch, preset, offset, page_s
     assert (rec.enc_key, rec.format_name, rec.params) == (key, p.name, p)
     assert (rec.source_pid, rec.db_path) == (123, "synthetic.edb")
     assert opened == [123] and closed == [456]
-    assert reads == [0, 1, 0, 1]  # hex pass first, raw pass second
+    assert reads == [0, 1, 0, 1]
     assert key.hex() not in repr(rec) and repr(key) not in repr(rec)
 
 
@@ -78,7 +75,7 @@ def test_hex_pass_precedes_raw_and_keeps_64_char_rule(scanner, monkeypatch, deep
     monkeypatch.setattr(scanner, "_scan_raw_windows", forbidden)
     rec = scanner.recover_key_for_db(
         encrypted[:4096], "synthetic.edb", deep_scan=deep,
-        params=DEVICE_AES128_DEFAULTS,  # still tests the other preset
+        params=DEVICE_AES128_DEFAULTS,
     )
     assert (rec.enc_key, rec.format_name) == (key, "SQLCIPHER4")
     assert closed == [456] and reads == [0]

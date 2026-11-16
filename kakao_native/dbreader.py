@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 복호화한 본인 카카오톡 로컬 DB(.edb)를 sqlite3 로 열어 최근 대화를 읽는다.
 읽기 전용. 원본 .edb 는 건드리지 않는다.
@@ -67,7 +66,6 @@ def _pick_chat_table(infos: list[TableInfo]) -> TableInfo | None:
     for t in infos:
         lc = [c.lower() for c in t.columns]
         has_msg = any("message" in c or c == "v" or "text" in c for c in lc)
-        # KakaoTalk PC chatLogs의 시각 칼럼은 'sendAt'(=sendat) — 'send'도 시각으로 인정한다
         has_time = any("created" in c or "sent" in c or "send" in c or "date" in c or "time" in c
                        for c in lc)
         if has_msg and has_time and t.row_count > 0:
@@ -108,7 +106,7 @@ def read_recent(enc_path: str, enc_key: bytes, limit: int = 5,
             return {
                 "file": os.path.basename(enc_path),
                 "tables": [(t.name, t.row_count) for t in infos],
-                "schema": {t.name: t.columns for t in infos},  # 칼럼 이름만(본문 없음) — 대화 테이블 매핑용
+                "schema": {t.name: t.columns for t in infos},
                 "chat_table": chat.name if chat else None,
                 "order_col": order_col,
                 "recent": recent,
@@ -142,8 +140,6 @@ def verify_database_bytes(encrypted: bytes, enc_key: bytes,
         raise RuntimeError("this Python SQLite build lacks in-memory deserialize")
     wal_header = plain[18:20] != b"\x01\x01"
     if wal_header:
-        # A standalone deserialized DB cannot open a disk WAL. Normalize ONLY the
-        # in-memory header for checking this main-file image, never the original.
         plain = plain[:18] + b"\x01\x01" + plain[20:]
     conn = sqlite3.connect(":memory:")
     try:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """네이티브 경로(kakao_native.account · iris_native · kakaowin) 오프라인 테스트.
 
 실제 카카오톡 DB·프로세스·창을 쓰지 않는다. 평문 SQLite 로 만든 가짜 계정 폴더와
@@ -64,7 +63,7 @@ def fake_acc(tmp_path, monkeypatch):
                    [(l, a, t, m, json.dumps({"name": "a.pdf"}) if t == 18 else "", s) for l, a, t, m, s in msgs])])
 
     @contextlib.contextmanager
-    def plain_open(path, key, params):   # 복호화 대신 평문 SQLite 를 그대로 연다
+    def plain_open(path, key, params):
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
@@ -98,11 +97,10 @@ def _acct(fake_acc, **kw):
     return A.Account(acc=str(fake_acc), keys=FakeKeys(**kw), log=lambda *a: None)
 
 
-# ───────────────────────── account ─────────────────────────
 def test_rooms_names_and_me(fake_acc):
     a = _acct(fake_acc)
     assert a.my_id == ME
-    assert [r["id"] for r in a.rooms] == ["11", "22", "33"]          # 최근순
+    assert [r["id"] for r in a.rooms] == ["11", "22", "33"]
     names = {r["id"]: r["name"] for r in a.rooms}
     assert names == {"11": "홍길동", "22": "스터디방", "33": "나와의 채팅"}
     assert a.memo_room()["id"] == "33"
@@ -136,7 +134,7 @@ def test_memory_keys_cache_roundtrip(tmp_path):
     mk = A.MemoryKeys(str(tmp_path), log=lambda *a: None, cache_path=cache)
     mk.keys["x.edb"] = (bytes(range(32)), A.SQLCIPHER4_DEFAULTS)
     mk._save()
-    assert cache.exists() and bytes(range(32)) not in cache.read_bytes()   # 평문 키가 파일에 없다
+    assert cache.exists() and bytes(range(32)) not in cache.read_bytes()
     again = A.MemoryKeys(str(tmp_path), log=lambda *a: None, cache_path=cache)
     assert again.key_for("x.edb") == (bytes(range(32)), A.SQLCIPHER4_DEFAULTS)
 
@@ -151,7 +149,7 @@ def test_memory_keys_scan_matches_synthetic_db(tmp_path, monkeypatch):
     rel = "chat_data\\chatLogs_9.edb"
     (tmp_path / "chat_data").mkdir()
     (tmp_path / rel).write_bytes(encrypt_fixture(synthetic_sqlite(4096, p.reserve), key, p))
-    blob = b"zz\x00" * 100 + key.hex().encode() + b"\x00zz" * 50   # 앞뒤가 16진수 글자가 아니어야 64자 후보로 잡힌다
+    blob = b"zz\x00" * 100 + key.hex().encode() + b"\x00zz" * 50
     monkeypatch.setattr(memkey, "_open_process_readonly", lambda pid: 1)
     monkeypatch.setattr(memkey, "_iter_regions", lambda h: [(0, len(blob))])
     monkeypatch.setattr(memkey, "_read_region", lambda h, b, s: blob)
@@ -175,7 +173,7 @@ def test_memory_keys_raw_scan_with_prefilter(tmp_path, monkeypatch):
         (tmp_path / rel).write_bytes(encrypt_fixture(synthetic_sqlite(4096, p.reserve), k, p))
     pre = A._HeaderPrefilter({r: (tmp_path / r).read_bytes()[:4096] for r in rels})
     assert pre.hit(k1) and pre.hit(k2) and not pre.hit(bytes(range(50, 82)))
-    blob = b"\x00" * 64 + k1 + b"\x00" * 40 + k2 + b"\x00" * 64           # 64·136: 8바이트 정렬
+    blob = b"\x00" * 64 + k1 + b"\x00" * 40 + k2 + b"\x00" * 64
     monkeypatch.setattr(memkey, "_open_process_readonly", lambda pid: 1)
     monkeypatch.setattr(memkey, "_iter_regions", lambda h: [(0, len(blob))])
     monkeypatch.setattr(memkey, "_read_region", lambda h, b, s: blob)
@@ -202,7 +200,6 @@ def test_make_keys_v2_missing_module_falls_back(tmp_path, monkeypatch):
         A.make_keys(str(tmp_path), "v2", log=lambda *a: None)
 
 
-# ───────────────────────── iris_native ─────────────────────────
 def test_shim_query_poll_and_send_lock(fake_acc, tmp_path, monkeypatch):
     import iris_native as IN
     a = _acct(fake_acc)
@@ -211,7 +208,7 @@ def test_shim_query_poll_and_send_lock(fake_acc, tmp_path, monkeypatch):
     assert {r["type"] for r in ni.query("SELECT type FROM chat_rooms")} == {"DirectChat", "MultiChat", "MemoChat"}
     with pytest.raises(ValueError):
         ni.query("DELETE FROM chat_logs")
-    assert ni.poll() == []                                    # 처음 적재분은 이벤트가 아니다
+    assert ni.poll() == []
     c = sqlite3.connect(fake_acc / "chat_data" / "chatLogs_11.edb")
     c.execute("INSERT INTO chatLogs VALUES(4, ?, 1, '새 글', '', ?, 0, 0)", (FRIEND, NOW + 99))
     c.commit(); c.close()
@@ -220,30 +217,29 @@ def test_shim_query_poll_and_send_lock(fake_acc, tmp_path, monkeypatch):
 
     sent = []
     fake_send = lambda title, text: sent.append((title, text)) or {"ok": True, "confirmed": True}  # noqa: E731
-    monkeypatch.setattr(IN, "CONFIG", tmp_path / "missing.json")          # 설정 없음 → 잠금
+    monkeypatch.setattr(IN, "CONFIG", tmp_path / "missing.json")
     assert ni.reply({"room": "11", "data": "x"}, sender=fake_send)["success"] is False
     assert ni.reply({"room": "33", "data": "메모"}, sender=fake_send)["success"] is True
     cfg = tmp_path / "config.json"
     cfg.write_text(json.dumps({"native_send_only_memo": False, "native_send_rooms_only": ["22"]}), encoding="utf-8")
     monkeypatch.setattr(IN, "CONFIG", cfg)
-    assert ni.reply({"room": "11", "data": "x"}, sender=fake_send)["success"] is False   # 허용 방 아님
+    assert ni.reply({"room": "11", "data": "x"}, sender=fake_send)["success"] is False
     assert ni.reply({"room": "22", "data": "y"}, sender=fake_send)["success"] is True
     assert sent == [("나와의 채팅", "메모"), ("스터디방", "y")]
 
 
 def test_send_allowed_rules():
     import iris_native as IN
-    assert IN.send_allowed({}, "1", "DirectChat")[0] is False                 # 기본값은 잠금
+    assert IN.send_allowed({}, "1", "DirectChat")[0] is False
     assert IN.send_allowed({"native_send_only_memo": False}, "1", "DirectChat")[0] is True
     assert IN.send_allowed({"native_send_only_memo": False}, "1", "PlusChat")[0] is False
 
 
-# ───────────────────────── kakaowin ─────────────────────────
 def test_cli_parse_and_since():
     import kakaowin as K
     p = K.build_parser()
     a = p.parse_args(["send", "방", "글"])
-    assert a.room == "방" and a.text == "글" and a.yes is False                 # 기본은 미리보기
+    assert a.room == "방" and a.text == "글" and a.yes is False
     assert p.parse_args(["messages", "--chat", "x", "--since", "7d"]).since == "7d"
     assert abs(K.parse_since("1h") - (__import__("time").time() - 3600)) < 5
     assert K.parse_since(None) == 0
@@ -260,16 +256,15 @@ def test_cli_send_refuses_without_yes_and_under_lock(fake_acc, monkeypatch, caps
                                     {"ok": True, "steps": ["s1"], "confirmed": True})
     monkeypatch.setitem(sys.modules, "pc_kakao_send", fake_pk)
     monkeypatch.setattr(K, "_account", lambda args, scan=True: _acct(fake_acc))
-    monkeypatch.setattr(K, "load_cfg", lambda: None)                          # 설정 없음 → 잠금
-    assert K.main(["send", "스터디방", "안녕하세요"]) == 0                       # 미리보기
+    monkeypatch.setattr(K, "load_cfg", lambda: None)
+    assert K.main(["send", "스터디방", "안녕하세요"]) == 0
     assert calls == [("스터디방", "안녕하세요", False)]
-    assert K.main(["send", "스터디방", "안녕하세요", "--yes"]) == 1              # 잠금으로 거부
+    assert K.main(["send", "스터디방", "안녕하세요", "--yes"]) == 1
     assert len(calls) == 1
     assert "전송 잠금" in capsys.readouterr().out
-    assert K.main(["send", "x" * 10, "y" * 501]) == 1                         # 길이 제한
+    assert K.main(["send", "x" * 10, "y" * 501]) == 1
 
 
-# ───────────────────────── 읽기 경로: 찌꺼기 파일 없음 · 바뀐 방만 읽기 ─────────────────────────
 def _wal_image(path: Path) -> bytes:
     """카카오톡 DB 처럼 WAL 방식인 평문 SQLite 이미지(머리말 18·19번째 바이트가 2)."""
     c = sqlite3.connect(path)
@@ -306,11 +301,11 @@ def test_open_decrypted_leaves_no_files(tmp_path, monkeypatch):
     tdir = tmp_path / "tmp"
     tdir.mkdir()
     monkeypatch.setattr(A.tempfile, "tempdir", str(tdir))
-    monkeypatch.setattr(A, "decrypt_database", lambda enc, key, params: enc)   # 합성 평문을 그대로 쓴다
+    monkeypatch.setattr(A, "decrypt_database", lambda enc, key, params: enc)
 
     with A.open_decrypted(str(src), b"k" * 32, A.SQLCIPHER4_DEFAULTS) as conn:
         assert conn.execute("SELECT count(*) FROM chatLogs").fetchone()[0] == 2
-        assert list(tdir.iterdir()) == []                                       # 메모리 경로: 파일을 안 만든다
+        assert list(tdir.iterdir()) == []
     assert list(tdir.iterdir()) == []
 
     real = sqlite3.connect
@@ -323,7 +318,7 @@ def test_open_decrypted_leaves_no_files(tmp_path, monkeypatch):
     monkeypatch.setattr(A.sqlite3, "connect", no_memory)
     with A.open_decrypted(str(src), b"k" * 32, A.SQLCIPHER4_DEFAULTS) as conn:
         assert conn.execute("SELECT count(*) FROM chatLogs").fetchone()[0] == 2
-        assert any(p.name.startswith("kknat_") for p in tdir.iterdir())         # 임시 파일 경로를 실제로 탔다
+        assert any(p.name.startswith("kknat_") for p in tdir.iterdir())
     assert list(tdir.iterdir()) == []
 
 
@@ -351,15 +346,15 @@ def test_poll_reads_only_changed_rooms(fake_acc):
     a = _acct(fake_acc)
     ni = IN.NativeIris(a, verbose=lambda *x: None)
     calls = _counting(a)
-    assert ni.poll() == [] and sorted(calls) == ["11", "22", "33"]   # 첫 확인: 방마다 한 번
+    assert ni.poll() == [] and sorted(calls) == ["11", "22", "33"]
     calls.clear()
-    assert ni.poll() == [] and ni.poll() == [] and calls == []        # 그대로면 열지 않는다
+    assert ni.poll() == [] and ni.poll() == [] and calls == []
     _add(fake_acc, "11", 4, "새 글")
     ev = ni.poll()
-    assert [e["msg"] for e in ev] == ["새 글"] and calls == ["11"]    # 바뀐 방만
+    assert [e["msg"] for e in ev] == ["새 글"] and calls == ["11"]
     calls.clear()
     assert ni.poll() == [] and calls == []
-    (fake_acc / "chat_data" / "chatLogs_22.edb-wal").write_bytes(b"\0" * 64)   # -wal 만 바뀌어도 다시 읽는다
+    (fake_acc / "chat_data" / "chatLogs_22.edb-wal").write_bytes(b"\0" * 64)
     assert ni.poll() == [] and calls == ["22"]
     calls.clear()
     assert ni.poll() == [] and calls == []
@@ -376,14 +371,14 @@ def test_poll_retries_room_that_failed_to_open(fake_acc):
     def flaky(cid, since=0):
         if cid == "11" and fail:
             fail.clear()
-            return None                      # 카톡이 쓰는 중이라 못 열었다
+            return None
         return real(cid, since)
 
     a.read_since = flaky
-    assert ni.poll() == []                   # 못 읽은 것을 '읽음'으로 치지 않는다
-    ev = ni.poll()                           # 파일은 그대로지만 다시 읽어서 전달한다
+    assert ni.poll() == []
+    ev = ni.poll()
     assert [e["msg"] for e in ev] == ["놓치면 안 되는 글"]
-    assert ni.poll() == []                   # 두 번 전달하지 않는다
+    assert ni.poll() == []
 
 
 def test_read_since_none_when_unreadable(fake_acc):

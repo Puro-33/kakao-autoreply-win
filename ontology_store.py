@@ -22,7 +22,6 @@ ONT_DIR = BASE / "ontology"
 SCHEMA_FILE = ONT_DIR / "schema.json"
 KST = dt.timezone(dt.timedelta(hours=9))
 
-# 코드 상수: schema.json과 다르면 카드 없음 모드(안전 쪽)로 동작한다
 LOCKED_TOPICS_MIN = {"입시", "성적", "학점", "병역", "계좌", "송금", "건강"}
 CONTACT_PREDICATES = {"relation_label", "my_role", "their_role", "honorific_mine", "address_term",
                       "member_of", "last_thread"}
@@ -44,14 +43,13 @@ class Store:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.schema_file = Path(schema_file or SCHEMA_FILE)
-        self.ok = False            # False면 카드 없음 모드(읽기 결과 비움)
+        self.ok = False
         self.problem = ""
         self.schema: dict = {}
         self.never: list[re.Pattern] = []
         self.data: dict[str, dict] = {}
         self.reload()
 
-    # ───────── 로드·저장 ─────────
     def reload(self) -> None:
         with self.lock:
             try:
@@ -91,7 +89,7 @@ class Store:
                         return self_inner
                     except FileExistsError:
                         try:
-                            if time.time() - lf.stat().st_mtime > 30:   # 죽은 프로세스가 남긴 잠금
+                            if time.time() - lf.stat().st_mtime > 30:
                                 lf.unlink()
                                 continue
                         except OSError:
@@ -129,7 +127,6 @@ class Store:
             a.write(json.dumps({"at": now_iso(), "who": who, "action": action, "target": target,
                                 "note": self.mask(note)[:120]}, ensure_ascii=False) + "\n")
 
-    # ───────── 검사 ─────────
     def never_hit(self, text: str) -> bool:
         return any(p.search(text or "") for p in self.never)
 
@@ -167,14 +164,13 @@ class Store:
             raise OntologyError(f"{predicate}는 {enum} 중 하나")
         return v
 
-    # ───────── 사실 쓰기 ─────────
     def add_fact(self, subject: str, predicate: str, value: str, source: dict,
                  audience: str | None = None, confidence: float | None = None) -> dict:
         """검사를 통과하면 저장하고 Fact를 돌려준다. 실패하면 OntologyError."""
         if not self.ok:
             raise OntologyError(f"카드 없음 모드: {self.problem}")
         cls = self.subject_class(subject)
-        if audience is None:   # 기본: 상대 사실은 그 상대에게만, 나머지는 주인만
+        if audience is None:
             audience = f"contact:{subject[2:]}" if cls == "Contact" else "owner"
         if predicate not in self.schema["predicates"].get(cls, []):
             raise OntologyError(f"{cls}에 허용되지 않은 predicate: {predicate}")
@@ -190,7 +186,7 @@ class Store:
         if cls == "Contact":
             chat_id = subject[2:]
             if stype in ("profile_md", "dm_categories"):
-                status, audience = "candidate", "owner"     # 방 단위 출처가 없어 조건 4를 검증할 수 없음
+                status, audience = "candidate", "owner"
             elif stype not in self.schema["contact_active_sources"]:
                 raise OntologyError(f"상대 사실에 쓸 수 없는 출처: {stype}")
             elif stype not in ("owner", "iris_structural") and not ref.startswith(f"chat:{chat_id}#"):
@@ -203,7 +199,7 @@ class Store:
                     raise OntologyError("member_of는 내가 먼저 속한 Group만")
         else:
             if audience == "any" and stype != "owner":
-                audience = "group"                          # any는 주인만 부여
+                audience = "group"
             if stype == "chat_other":
                 if not ref.startswith("chat:"):
                     raise OntologyError("chat_other에는 ref=chat:<방>#… 필요")
@@ -211,7 +207,7 @@ class Store:
         if audience not in ("any", "group", "owner") and not audience.startswith(("contact:", "group:")):
             raise OntologyError(f"알 수 없는 audience: {audience}")
         if self.topic_hit(v):
-            audience = "owner"                              # 잠금 주제는 값으로 판별, predicate와 무관
+            audience = "owner"
 
         fact = {"id": "f_" + uuid.uuid4().hex[:10], "subject": subject, "predicate": predicate, "value": v,
                 "source": {"type": stype, "ref": self.mask(ref)[:80],
@@ -228,7 +224,6 @@ class Store:
             single = predicate in self.schema.get("identity_predicates", []) or predicate in (
                 "relation_label", "their_role", "honorific_mine", "address_term", "status", "my_role")
             if single and same and stype != "owner" and status == "active":
-                # 값이 다르면 둘 다 conflict로, 카드에는 값이 나가지 않는다. 해소는 주인만(resolve_conflict)
                 fact["status"] = "conflict"
                 fact["audience"] = "owner"
                 for f in same:
@@ -236,7 +231,7 @@ class Store:
                     f["conflicts_with"] = sorted(set(f["conflicts_with"]) | {fact["id"]})
                     fact["conflicts_with"].append(f["id"])
             elif single and same and stype == "owner":
-                for f in same:                              # 주인 입력은 기존 값을 대체
+                for f in same:
                     f["status"] = "retracted"
             self.data["facts"][fact["id"]] = fact
             self._write("facts", "add", {"id": fact["id"], "subject": subject, "predicate": predicate})
@@ -280,12 +275,11 @@ class Store:
                 self._write("facts", "retract", {"id": fact_id})
                 self.audit(who, "retract", fact_id)
 
-    # ───────── 상대·그룹 ─────────
     def ensure_contact(self, chat_id: str, name: str, category: str = "미분류") -> dict:
         with self.lock:
             c = self.data["contacts"].get(chat_id)
             if c and c.get("status") == "forgotten":
-                return c                                    # 잊은 상대는 다시 쌓지 않는다
+                return c
             name = self.mask(name)[:40]
             if not c:
                 c = {"chat_id": chat_id, "name": name, "aliases": [], "category": category,
@@ -336,7 +330,6 @@ class Store:
                 g["members"].append(chat_id)
                 self._write("groups", "member", {"id": gid, "chat_id": chat_id})
 
-    # ───────── 읽기(가시성) ─────────
     def visible_facts(self, viewer_chat_id: str, category: str = "미분류") -> list[dict]:
         """이 상대에게 말해도 되는 active 사실만. 범주 천장·audience·잠금 주제를 모두 적용."""
         if not self.ok:
@@ -358,15 +351,13 @@ class Store:
             elif a.startswith("group:"):
                 ok = ceiling >= 1 and a[6:] in my_groups
             elif a == "group":
-                # 나(Me)에 관한 group 사실(수업·프로그램·활동)은 학교 맥락 범주(me_group_categories: 학교·교수)에만.
-                # Group 객체의 사실은 그 Group에 함께 속한 상대에게만.
                 school_ctx = category in self.schema.get("me_group_categories", ["학교", "교수"])
                 ok = ceiling >= 1 and ((f["subject"] == "me" and (school_ctx or bool(my_groups)))
                                        or f["subject"] in my_groups or f["subject"] == f"c:{viewer_chat_id}")
-            else:  # any
+            else:
                 ok = ceiling >= 0
             if f["subject"].startswith("c:") and f["subject"] != f"c:{viewer_chat_id}":
-                ok = False                                  # 다른 상대에 관한 사실은 절대 안 보인다
+                ok = False
             if f["subject"].startswith("g:") and f["subject"] not in my_groups:
                 ok = False
             if ok:

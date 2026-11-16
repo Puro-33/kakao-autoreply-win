@@ -109,8 +109,8 @@ def label(title: str) -> str:
     return "수업" if re.match(r"\s*\[(수업|강의)", title or "") else "일정"
 
 
-BOT_MARK = "카톡 자동응답 봇이 잡은 일정"   # create()가 설명 끝에 붙이는 표시
-BOT_TITLE_RE = re.compile(r"약속\s*$")      # create()가 만드는 제목: '<이름> 약속' / '카톡 약속'
+BOT_MARK = "카톡 자동응답 봇이 잡은 일정"
+BOT_TITLE_RE = re.compile(r"약속\s*$")
 
 
 def is_bot_event(e: dict) -> bool:
@@ -198,8 +198,6 @@ def free_slots(days: int = 7, min_minutes: int = 60, data: dict | None = None) -
     """깨어 있는 시간(schedule_hours) 안에서 비어 있는 구간."""
     h0, h1 = _hours()
     now = dt.datetime.now(KST)
-    # 하루 더 읽는다: 아래 반복은 오늘~days일 뒤까지(days+1일)라, busy_blocks(days)로는 마지막 날 지금 시각 이후 일정이
-    # 빠져 그날이 통째로 비어 보였다(11/09)
     blocks = sorted(busy_blocks(days + 1, data))
     out = []
     for k in range(days + 1):

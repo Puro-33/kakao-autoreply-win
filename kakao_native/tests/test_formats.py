@@ -43,7 +43,7 @@ def synthetic_sqlite(page_size, reserve):
     for page, offset, payload in ((first, 100, schema), (second, 0, record)):
         cell = bytes((len(payload), 1)) + payload
         start = usable - len(cell)
-        page[offset] = 13  # leaf table btree
+        page[offset] = 13
         page[offset + 3:offset + 5] = (1).to_bytes(2, "big")
         page[offset + 5:offset + 7] = start.to_bytes(2, "big")
         page[offset + 8:offset + 10] = start.to_bytes(2, "big")
@@ -182,9 +182,8 @@ def test_no_hmac_later_corruption_needs_sqlite_check():
     p = DEVICE_AES128_DEFAULTS
     key = bytes(range(16))
     enc = bytearray(encrypt_fixture(synthetic_sqlite(4096, 16), key, p))
-    # Flip second page's IV to turn known btree page type 13 into invalid 255.
     enc[-16] ^= 13 ^ 255
-    assert verify_raw_key(bytes(enc[:4096]), key, p)  # page1 alone can't prove integrity
+    assert verify_raw_key(bytes(enc[:4096]), key, p)
     with pytest.raises((ValueError, sqlite3.DatabaseError)):
         verify_database_bytes(bytes(enc), key, p)
 
@@ -228,7 +227,7 @@ def test_analyzer_synthetic_files_readonly(tmp_path):
     enc = encrypt_fixture(synthetic_sqlite(4096, 80), bytes(range(32)), p)
     paths = [tmp_path / f"chatLogs_fake{i}.edb" for i in range(3)]
     for path in paths:
-        path.write_bytes(enc)  # synthetic fixture ONLY
+        path.write_bytes(enc)
     before = [(path.stat().st_mtime_ns, path.read_bytes()) for path in paths]
     result = analyze_directory(str(tmp_path))
     assert result["files_opened"] == 3

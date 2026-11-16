@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """PC 카카오톡 '내 계정' 로컬 DB를 직접 읽는다: 방 목록·사용자 이름·메시지.
 
 키는 두 가지 방법 중 하나로 구한다(KeyProvider).
@@ -73,7 +72,6 @@ def first_page(path: str, size: int = 4096) -> bytes:
         return f.read(size)
 
 
-# ───────────────────────── 키 제공자 ─────────────────────────
 class _HeaderPrefilter:
     """32바이트 후보 키를 HMAC 검증 전에 싸게 거른다(SQLCipher 4, 4096B 페이지, reserve 80).
 
@@ -123,10 +121,9 @@ class MemoryKeys:
         self.log = log
         self.cache_path = cache_path or (app_home() / "keys.dpapi")
         self.keys: dict[str, tuple[bytes, SqlCipher4Params]] = {}
-        self.hot: set[int] = set()   # 키가 나왔던 메모리 영역 시작 주소(이번 실행 동안만)
+        self.hot: set[int] = set()
         self._load()
 
-    # 캐시 형식: DPAPI( JSON {relpath: {"k": hex, "p": params dict}} )
     def _load(self) -> None:
         from . import dpapi
         try:
@@ -208,7 +205,6 @@ class MemoryKeys:
                 except OSError:
                     continue
                 try:
-                    # 전에 키가 나온 메모리 영역(같은 힙)을 먼저 본다: 새 방 키도 대개 그 근처에 있다
                     regions = sorted(memkey._iter_regions(h), key=lambda r: r[0] not in self.hot)
                     for base, size in regions:
                         blob = memkey._read_region(h, base, size)
@@ -248,7 +244,7 @@ class V2Keys:
     name = "v2"
 
     def __init__(self, acc: str, log=print):
-        from . import keystore_v2 as kv   # 없으면 ImportError → MemoryKeys 로 떨어진다
+        from . import keystore_v2 as kv
         from .memkey import find_kakaotalk_pids, find_v2_root_key
         appstate = os.path.join(acc, "appstate.dat")
         ks = kv.parse_appstate(appstate)
@@ -292,7 +288,6 @@ def make_keys(acc: str, mode: str = "auto", log=print):
     return MemoryKeys(acc, log)
 
 
-# ───────────────────────── 복호화 ─────────────────────────
 @contextlib.contextmanager
 def open_decrypted(enc_path: str, key: bytes, params: SqlCipher4Params):
     """암호화 .edb 를 복호화해 읽기 전용 sqlite 연결로 연다. 최근 글이 있는 -wal 도 덮어쓴다.
@@ -336,7 +331,7 @@ def _connect_plain(plain: bytes) -> tuple[sqlite3.Connection, str]:
             raise
         conn.row_factory = sqlite3.Row
         return conn, ""
-    except Exception:  # noqa: BLE001  deserialize 가 없는 파이썬이거나 이미지가 메모리에서 안 열림
+    except Exception:  # noqa: BLE001
         pass
     fd, tmp = tempfile.mkstemp(suffix=".db", prefix="kknat_")
     try:
@@ -363,7 +358,6 @@ def rows(conn: sqlite3.Connection | None, sql: str, bind=()) -> list[sqlite3.Row
         return []
 
 
-# ───────────────────────── 계정 ─────────────────────────
 class Account:
     """방 목록·사용자 이름·메시지 읽기. rooms: [{id,type,name,members,member_count,last}] 최근순."""
 
@@ -381,7 +375,6 @@ class Account:
         self._load_users()
         self._load_rooms()
 
-    # ---- DB 열기 ----
     def chat_relpath(self, chat_id: str) -> str:
         return f"chat_data\\chatLogs_{chat_id}.edb"
 
@@ -396,7 +389,7 @@ class Account:
         try:
             with open_decrypted(path, key, params) as conn:
                 yield conn
-        except Exception as e:  # noqa: BLE001  키가 바뀌었거나 파일이 쓰이는 중
+        except Exception as e:  # noqa: BLE001
             self.log(f"[열기 실패] {os.path.basename(relpath)}: {type(e).__name__}")
             yield None
 
@@ -413,7 +406,6 @@ class Account:
     def readable(self, chat_id: str) -> bool:
         return self.keys.key_for(self.chat_relpath(chat_id)) is not None
 
-    # ---- 사용자·방 ----
     def _load_users(self) -> None:
         for r in self.query(USER_DB, "SELECT userId, nickName, friendNickName FROM talkUser"):
             nm = (r["friendNickName"] or r["nickName"] or "").strip()
@@ -431,7 +423,7 @@ class Account:
             for ms in members.values():
                 for u in ms:
                     freq[u] = freq.get(u, 0) + 1
-            self.my_id = max(freq, key=freq.get) if freq else ""   # 모든 방에 들어 있는 사람 = 나
+            self.my_id = max(freq, key=freq.get) if freq else ""
             lst = rows(conn, "SELECT chatId, type, useCustomChatRoomTitle, chatRoomTitle, directChatMemberId, "
                              "activeMembersCount, lastUpdatedAt, lastLogId, linkId FROM chatRoomList")
         self.rooms = []
@@ -470,7 +462,6 @@ class Account:
         memo = [r for r in self.rooms if r["type"] == "MemoChat"]
         return memo[0] if len(memo) == 1 else None
 
-    # ---- 메시지 ----
     def raw_messages(self, chat_id: str, since_logid: int = 0, limit: int | None = None) -> list[sqlite3.Row]:
         sql = ("SELECT logId, authorId, type, message, attachement, sendAt, COALESCE(threadId,0) AS threadId, "
                "COALESCE(scope,0) AS scope FROM chatLogs WHERE logId > ? ORDER BY logId ASC")

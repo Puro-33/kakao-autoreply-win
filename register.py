@@ -26,14 +26,12 @@ def _sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if len(p.strip()) >= 2]
 
 
-# ───────── 높임(11/09 round2 문제 3): 말끝으로 반말·해요체·합쇼체를 가른다 ─────────
-# 예전 휴리스틱은 '…ㅜㅜ'·'ㅋㅋ' 같은 꼬리를 반말로 잘못 셌다 → 꼬리 표시를 떼고 말끝만 본다. 모르는 끝(명사·'잠깐만')은 ""(안 셈)
 _REG_TAIL_RE = re.compile(r"[\s.,!?~ㅋㅎㅠㅜ;:^…><)(\-_*+=♡♥☆★'\"\U0001F300-\U0001FAFF☀-➿]+$")
 _HASIPSHO_END_RE = re.compile(r"(?:니다|니까|십시오|습니다|습니까|ㅂ니다|십니까|시죠|십쇼)$")
 _HAEYO_END_RE = re.compile(r"(?:요|용|욤|죠|죵|여|염|세용|에염)$")
 _POLITE_WORD_RE = re.compile(r"^(?:네|넵|넹|넴|예|네네|넵넵|네엡|옙|앗\s?네|아\s?네|네\s?넵)$")
 _BANMAL_WORD_RE = re.compile(r"^(?:응|웅|ㅇㅇ|ㅇㅋ|ㄱㄱ|ㄴㄴ|ㅇㅈ|ㄹㅇ|어|엉|그래|아니|아냐|오키|오케이?|ㅇㅋㅇㅋ)$")
-_BANMAL_LAST = set("어아야지해자냐니게께래까다네든데걸임음함됨줘봐와거고듯나대군셈랑구여")   # '여'는 아래에서 해요체로 먼저 셈
+_BANMAL_LAST = set("어아야지해자냐니게께래까다네든데걸임음함됨줘봐와거고듯나대군셈랑구여")
 
 
 def sentence_register(s: str) -> str:
@@ -49,7 +47,7 @@ def sentence_register(s: str) -> str:
         return "합쇼체"
     if _HAEYO_END_RE.search(core):
         return "해요체"
-    if re.search(r"[ㄱ-ㅎ]{2,}$", core):   # 'ㅇㅇ'·'ㄱㄱ'로 끝남
+    if re.search(r"[ㄱ-ㅎ]{2,}$", core):
         return "반말" if re.search(r"(?:ㅇㅇ|ㅇㅋ|ㄱㄱ|ㄴㄴ|ㅇㅈ|ㄹㅇ)$", core) else ""
     return "반말" if core[-1] in _BANMAL_LAST else ""
 

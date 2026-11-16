@@ -113,7 +113,6 @@ def _read_ledger(limit: int = 1500) -> list[dict]:
     return out
 
 
-# ── B8 OWNER 판정 고리: '!판정'(나와의 채팅)에서 지난주 봇 답 몇 건을 보여 주고 '1 좋음'·'2 나쁨 이유'를 owner_judge로 남긴다 ──
 JUDGE_LINE = re.compile(r"^\s*([1-9])\s*(?:번|[.):])?\s*(좋음|좋아|굿|ㅇㅋ|good|나쁨|나빠|별로|bad)(?![가-힣A-Za-z])\s*[,.:\-]?\s*(.*)$", re.I)
 _GOOD = ("좋음", "좋아", "굿", "ㅇㅋ", "good")
 

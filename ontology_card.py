@@ -15,43 +15,29 @@ import re
 
 from ontology_store import Store
 
-# 약속·출결·돈·결정 — 세 단계로 나눈다(사용자 결정 11/08: 가벼운 예/아니오는 풀고 진짜 약속은 잡아 둔다)
-# HARD: LLM 판단과 무관하게 보류(돈·제출/마감·새 시각 정하기)
 HARD_COMMIT_RE = re.compile(
     r"몇\s?시"
     r"|입금|송금|회비|정산|계좌|돈\s|돈을|돈이|빌려|갚|비용|얼마"
     r"|마감|까지\s?(?:해|보내|제출)|제출")
-# DECIDE: LLM에 넘기되, OWNER이 [대화 기록]에서 이미 한 말을 되풀이하는 답(restates_owner, 코드가 인용 확인)만 허용
 DECIDE_COMMIT_RE = re.compile(r"약속|확정|수락|결정|지원할|지원해|가입할|가입해|신청할|신청해")
-# AVAIL: 가벼운 시간·가능 여부. 위 되풀이 답 또는 확답 없는 완곡한 답(soft_hold, 코드가 검사)만 허용
 AVAIL_COMMIT_RE = re.compile(
     r"참석|출석|불참|결석|만나(?:자|요|요\?|ㄹ|실|볼)|시간\s?(?:돼|되|괜찮|있)|언제\s?(?:돼|되|가능|볼|만나|시간)"
     r"|가능(?:하세요|하신가요|하실까요|할까요|해\?|하냐|한가요)|올\s?수\s?있|갈\s?수\s?있|와\s?줄\s?수|해\s?줄\s?수|보내\s?줄\s?수"
-    # B1(11/09 레드팀 F2): 관문을 그냥 통과하던 확답 요구
     r"|참여|올\s?거지|와야\s?(?:돼|해|함)|맞다고|내\s?줄\s?수|도와\s?줄\s?수|맡아\s?줄|가\s?줄\s?수|들어\s?올\s?수")
-# '맞지?·볼까·가능?'은 흔한 말이라 시각·날짜와 같이 올 때만 avail(B1: '그럼 내일 저녁 7시 맞지?', '7시에 볼까 아니면 8시?')
 TIMED_ASK_RE = re.compile(r"맞지|맞죠|볼까|봐요\?|가능\?|가능해|되지\?|되죠|어때\?")
 _DAY_OR_CLOCK_RE = re.compile(r"\d{1,2}\s?(?:시|:\d{2})|오늘|내일|모레|주말|이번\s?주|다음\s?주|담주|[월화수목금토일]요일|저녁|점심|아침|밤")
-# 예전 한 덩어리 정규식(다른 곳에서 '약속성 말인지' 볼 때 쓰도록 남김)
 COMMIT_RE = re.compile("|".join(p.pattern for p in (HARD_COMMIT_RE, DECIDE_COMMIT_RE, AVAIL_COMMIT_RE)) + "|결제|환불")
-# B15(11/09 round2): '결제·환불'은 앱 결제 오류·제품 요금 같은 일반 언급이 많다(오픈채팅 #13 '유료결제… 어떤 AI가 나을까요'가 막힘).
-# OWNER 돈을 가리키는 말(결제 부탁·대신·했어?·송금·계좌·더치…)과 같이 올 때만 hard. 송금·입금·계좌·정산 등은 HARD_COMMIT_RE에 그대로
 PAY_WORD_RE = re.compile(r"결제|환불")
 PAY_OWNER_RE = re.compile(
     r"결제\s?(?:해\s?줘|해\s?줄|해\s?주|해\s?달|좀|부탁|대신|했(?:어|냐|니|지|죠|어요|나요)|하셨|해야\s?(?:돼|해|함|하는)|할\s?(?:게|께|래|수|사람)|했으면|해\s?놔|해\s?둬|ㄱ)"
     r"|환불\s?(?:해\s?줘|해\s?줄|해\s?주|해\s?달|좀|부탁|받았|했(?:어|냐|니|지)|해야)"
     r"|대신\s?결제|결제\s?(?:금액|대금|요청|링크)|n빵|엔빵|더치|나눠\s?(?:내|낼|결제)|반반|이체|카드\s?(?:번호|빌려|줘)"
     r"|(?<![가-힣])(?:너|니가|네가|님이|OWNER)\S{0,4}\s?(?:결제|환불)")
-# 학교·학적 질문 — 학교 정체가 해소되기 전에는 보류(조건 6)
 SCHOOL_Q_RE = re.compile(
     r"(?:학교|대학|캠퍼스)\s?(?:어디|어느|뭐|다녀|다니|이름)|어느\s?(?:학교|대학)|무슨\s?(?:학교|대학|과)|(?:과|학과|전공)\s?(?:어디|뭐|머|이)"
     r"|몇\s?학년|학년이|학번|휴학|재학\s?중|졸업\s?(?:언제|했|해|예정)|복전|복수\s?전공|부전공|입시")
 SCHOOL_PRIVATE_RE = re.compile(r"학번|휴학|입시")
-# B2: 의견·평가 질문('요즘 ○○ 어떰?') — 미루는 말('확인해 보고 알려줄게')이 어색하고 티가 남 → 보류 문구 없이 할 일만
 OPINION_Q_RE = re.compile(r"어때|어떰|어떻|어땠|어떤\s?(?:거|게|편)|어케|분위기|추천|뭐가\s?(?:나|좋|낫)|낫(?:냐|나|지)|별로|생각\s?(?:해|함|하냐|있)|의견|느낌")
-# round5(공개 방 답, round4 오픈채팅 #20 '어떤 스펙이나 역량을 중요하게 볼것 같나요? … 다른분들 생각이 궁금하네요'):
-# 단톡·오픈채팅에서 OWNER 의견·취향·평가를 묻는 말. OPINION_Q_RE에 '~ㄹ 것 같나요?'·'생각이 궁금'·'좋아하세요?'·'어느 쪽' 등을 더한다.
-# '어떻게 해?'·'어떻게 설치해요?' 같은 방법 질문은 의견이 아니다(public_opinion_q가 뺀다)
 PUBLIC_OPINION_EXTRA_RE = re.compile(
     r"(?:볼|할|될|일|갈|쓸|뽑을|살|고를)\s?(?:것|거)\s?같(?:나요|아요\s?\?|으세요|으신가요|냐|니|아\s?\?|음\s?\?|습니까)"
     r"|생각(?:이|은|들|하시는\s?거)?\s?(?:궁금|어떠|어떻|어때)|어떻게\s?(?:생각|보(?:세요|시|여|나|니|냐|아|십|심)|느끼)"
@@ -74,8 +60,6 @@ def public_opinion_q(text: str) -> str:
     return ""
 
 
-# round5(공개 방 답, round4 오픈채팅 #4 '○○형님은 그 봇 사용하시나요?' → '그건 제가 잘 모르겠네요~'):
-# 다른 사람을 부르거나(첫머리 호칭) 그 사람을 주제로 높임 물음을 한 말 = 남에게 한 질문
 _OTHER_TITLE = r"(?:형님|누님|선배님|선생님|변호사님|교수님|대표님|팀장님|님|씨|형|누나|언니|오빠|쌤|선배)"
 _OTHER_VOC_RE = re.compile(r"^\s*(?:[^\s:]{1,8}\s?질문\s?[:：]\s*)?([가-힣A-Za-z]{2,8}?)" + _OTHER_TITLE + r"(?=[\s,!~.]|$)(?![\s,]*(?:말|얘기|글|처럼|이랑|한테|께|의))")
 _OTHER_TOPIC_RE = re.compile(r"(?<![가-힣])([가-힣A-Za-z]{2,8}?)" + _OTHER_TITLE + r"(?:은|는|께서는?|도)\s")
@@ -91,7 +75,6 @@ def addressed_other(text: str, owner_names: tuple | list = ()) -> str:
     if not t or not re.search(r"\?|？|나요|까요|세요|신가|십니까|냐|니\s*$", t):
         return ""
     names = [str(n).strip() for n in (owner_names or ()) if str(n or "").strip()]
-    # 멘션 머리말('@닉네임 ')은 Iris가 붙이는 것이라 이름 검사에서 뺀다(r5 문제 1: 멘션이면 늘 ""이 되던 것)
     for n in sorted(names, key=len, reverse=True):
         t = re.sub(r"^\s*@\s?" + re.escape(n) + r"\s*", "", t)
     if any(n in t for n in names):
@@ -109,11 +92,11 @@ def addressed_other(text: str, owner_names: tuple | list = ()) -> str:
     return ""
 
 
-SCHOOL_TOKENS = ("한빛", "누리대", "hanbit", "nuritech")  # 내 학교 이름·약칭(외부 상대에게 숨길 낱말)으로 바꾸세요
+SCHOOL_TOKENS = ("한빛", "누리대", "hanbit", "nuritech")
 GENERIC_PRIVATE = "개인 사정·진로·학업 평가·돈·다른 사람 이야기는 말하지 않고 '그건 나중에 따로 얘기할게요'처럼 1인칭으로 넘긴다."
 
 
-SCHOOL_SHARE_CATEGORIES = ("학교", "교수", "친구")   # 학교 이름·수업을 말해도 되는 범주(사용자 결정 11/08: 친구 포함)
+SCHOOL_SHARE_CATEGORIES = ("학교", "교수", "친구")
 
 
 def school_value(st: Store) -> str:
@@ -135,14 +118,14 @@ def gate(text: str, st: Store, category: str | None = None, pay_soft: bool = Tru
     t = text or ""
     hit = st.topic_hit(t)
     if hit and hit in ("결제", "환불") and pay_soft and not PAY_OWNER_RE.search(t):
-        hit = st.topic_hit(PAY_WORD_RE.sub(" ", t))   # B15: 일반 결제 언급만이면 다른 비공개 낱말이 있는지 다시 본다
+        hit = st.topic_hit(PAY_WORD_RE.sub(" ", t))
     if hit:
         return "hard", "비공개 주제"
     if st.never_hit(t):
         return "hard", "개인정보 포함"
     if SCHOOL_Q_RE.search(t) and (school_unresolved(st) or category not in SCHOOL_SHARE_CATEGORIES):
         return "hard", "학교·학적 질문"
-    if SCHOOL_PRIVATE_RE.search(t):   # B2(레드팀 F3): 학번·휴학·입시은 범주와 상관없이(학교 이름과 분리)
+    if SCHOOL_PRIVATE_RE.search(t):
         return "hard", "학교·학적 질문"
     m = PAY_WORD_RE.search(t)
     if m and (not pay_soft or PAY_OWNER_RE.search(t)):
@@ -162,19 +145,12 @@ def pre_gate(text: str, st: Store, category: str | None = None, pay_soft: bool =
     return gate(text, st, category, pay_soft)[1]
 
 
-# ── 예/아니오 풀기(사용자 결정 11/08) ──
-# OWNER 줄: fetch_messages 형식 '[11/08 12:00] 나: 내용' (시각 없는 '나: 내용'도)
 OWNER_LINE_RE = re.compile(r"^(?:\[[^\]]*\]\s*)?나:\s?(.*)$", re.S)
-# 시각·날짜 표현(숫자 없이 쓰는 것). 숫자는 따로 본다
 TIME_WORD_RE = re.compile(
     r"오늘|내일|모레|글피|주말|평일|이번\s?주|다음\s?주|담주|[월화수목금토일]요일|아침|점심|저녁|밤|새벽|오전|오후|정오|자정"
     r"|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s?(?:시|분|시간)|반\s?시간|만\s?원|천\s?원")
-# 상대가 구체적인 시각을 내민 말('9~10시면', '3시 반', '14:00') → 완곡 답도 안 하고 그대로 보류(새 시각)
 CONCRETE_TIME_RE = re.compile(r"\d{1,2}\s?(?:시|:\d{2})|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|열한|열두)\s?시(?![간작])")
-# 'AI야? 봇이야?' — 풀지 않는다(거짓말 금지, 보류)
 AI_QUESTION_RE = re.compile(r"(?<![A-Za-z])(?:ai|bot|gpt)(?![A-Za-z])(?!\s?(?:관|과|학|대학|센터|융합|동|실|수업|강의|챌린지|대회|공모전|동아리|팀|프로젝트|플젝|스터디|툴|도구|모델|서비스|앱))|에이아이|봇|자동\s?응답|지피티|클로드|사람\s?(?:맞|이야|이에요|인가|이냐|임)", re.I)
-# round5(DIAG §4-4): 보류 판정용 좁은 꼴. '로봇 동아리'·'봇 만들어봤어?'·'디스코드봇 플젝'·'그 사람이야?'는 빼고
-# '너 봇이야?'·'로봇이야?'·'자동응답이야?'·'사람 맞아?'는 잡는다. 거짓말 막기(bot.ai_denial)는 넓은 AI_QUESTION_RE를 그대로 쓴다
 _AI_HOLD_BOT = (r"(?<!로)봇(?!\s?(?:만들|만드|만들어|개발|짜|짰|코딩|플젝|프로젝트|동아리|대회|코드|서버|토큰|api|API|기능|명령어))"
                 r"|로봇\s?(?:이|아|야|냐|임|맞|인가|인지|인거|아니)")
 AI_HOLD_RE = re.compile(
@@ -189,17 +165,13 @@ def ai_hold_re():
 
 
 AI_HOLD_NARROW = True
-# 완곡한 답에 들어가면 안 되는 수락어(확답으로 읽힘)
 SOFT_BANNED_RE = re.compile(
     r"ㄱㄴ|ㄱㄱ|ㅇㅋ|ㅇㅇ|오케|오키|(?<![A-Za-z])ok(?![A-Za-z])|콜|좋아|좋습|좋죠|좋지|좋네|괜찮|가능|돼|됩니다|되죠|되지|되요|될\s?(?:것|듯|거)|됨"
     r"|넵|넹|넴|네네|갈게|갈께|갈\s?수|갈래|참석|지원할|할게요|그러자|그래|당연|물론|알겠|있(?:어|어요|습니다|죠|지|음)(?![가-힣])", re.I)
 SOFT_YES_START_RE = re.compile(r"^\s*(?:네|예|응|웅|어\s|ㅇ|그럼|그치|맞아)")
-# 완곡한 답이라면 '미룬다'는 말이 들어 있어야 한다
 SOFT_DEFER_RE = re.compile(r"확인|알아보|생각해|이따|나중에|좀\s?있다|있다가|이따가|말해\s?줄|말씀\s?드릴|알려\s?줄|알려\s?드릴|연락|답해\s?줄|답\s?드릴|잠만|잠시만|잠깐만|보고\s?말")
-# 미루는 말 틀(줄기 + 붙는 꼬리 '해보고/할게/드릴게요'). 이걸 뺀 나머지에 수락·약속 동사가 남으면 섞인 답(11/09)
 SOFT_DEFER_FRAME_RE = re.compile("(?:" + SOFT_DEFER_RE.pattern + ")(?:해|하|보|봐|볼|봅|고|구|서|게|께|줄|드릴|드리|할|겠|습|니다|요|어|아)*")
 SOFT_ACCEPT_LEFT_RE = re.compile(r"보자|갈게|갈께|갈\s?수|참여|참석|맞출|맞춰|될\s?(?:거|것|듯)|할게|할께|콜")
-# 미루는 말 틀을 빼고 남아도 되는 말(B1 보강: 레드팀 확답성 19문장 중 12개가 통과하던 문제 — 금지어 대신 허용어로 본다)
 SOFT_NEUTRAL_TOKEN_RE = re.compile(
     r"(?:아|어|앗|엇|오|음|흠|헐|아하|아아|으음"
     r"|좀|한번|한|번|일단|우선|먼저|다시|바로|금방|곧|따로|혹시|더|좀더"
@@ -208,12 +180,10 @@ SOFT_NEUTRAL_TOKEN_RE = re.compile(
     r"|(?:말|얘기|애기|답|여쭤|물어|체크)(?:해|하|할|보|봐|볼|고|게|께|줄|드릴|드리|겠|습|니다|요|어|아|서)*"
     r"|요|용|여|염|ㅋ+|ㅎ+|ㅠ+|ㅜ+)"
     r"(?:을|를|은|는|이|가|도|만|좀)?")
-# B7(11/09): OWNER 자신의 경험·상태를 단정하는 말('안 해봤어', '해봤지', '없어', '몰라', '아직 안') — 근거가 있어야 한다
 STATE_CLAIM_RE = re.compile(
     r"(?:안|못)\s?(?:해|써|들어|가|봐)\s?봤|(?:해|써|들어|가)\s?봤(?:어|지|음|는데|다|어요|습니다)|해\s?본\s?적"
     r"|안\s?했|했(?:어|지|음|는데|다|어요|습니다)(?![가-힣]*\?)|없(?:어|음|는데|다|어요|습니다)(?![가-힣])"
     r"|몰라|모르겠|모름|모릅니다|아직\s?(?:안|못)")
-# 받은 말이 OWNER 자신의 경험·상태를 묻는가('해 봤냐', '써 봤어?', '들어?', '수강해?', '알아?')
 SELF_Q_RE = re.compile(
     r"(?:해|써|들어|가|봐)\s?(?:봤|봄|본\s?적)|(?:해|써|들어|가)\s?보(?:셨|신|세요|시나)|(?:알|아)(?:아|냐|니|세요|시나요)\s?\?|아는\s?거|"
     r"있(?:어|냐|니|나|음|으세요|으신가요)\s?\?|했(?:어|냐|니|음|나|어요)\s?\?|해\s?봄\??|듣(?:냐|니|어|나요)|들어\s?\?|수강|"
@@ -239,8 +209,6 @@ def self_fact_problem(text: str, reply: str, facts: str) -> str:
     return f"자기 사실 근거 없음({m.group(0)})"
 
 
-# round4(11/09, round3b 리플레이 1번): 묻지 않았는데 붙는 OWNER 자기 소개·지금 하는 일 묘사
-# ('…정도고, 지금 동아리 팀 프로젝트를 하고 있습니다.'). 프로필에 근거가 있어도 받은 말이 묻지 않았으면 덧붙이지 않는다.
 SELF_ACT_NOUN_RE = re.compile(
     r"프로젝트|플젝|동아리|스터디|연구|개발|인턴|알바|아르바이트|대회|ctf|해커톤|과제|수업|강의|학원|공부|대학원|회사|연구실|랩실"
     r"|창업|외주|부트캠프|자격증|시험|보안", re.I)
@@ -249,30 +217,23 @@ SELF_ACT_PROG_RE = re.compile(
     r"|(?:준비|진행|참여|활동|작업|수강|재학|휴학|개발)\s?중|(?:하|다니|듣|만들|배우)는\s?(?:중|편)")
 SELF_INTRO_RE = re.compile(
     r"(?:저는|전|나는|난|제가|내가)\s?[^.!?~\n]{0,25}(?:학생|전공|학년|재학|휴학|복학|학과|과\s?(?:이에요|예요|입니다|이야|다녀))")
-# 받은 말이 OWNER의 지금 하는 일·근황·소개를 묻는가
 SELF_NOW_Q_RE = re.compile(
     r"요즘|요새|최근|근황|지금\s?(?:뭐|머|모|무슨)|뭐\s?(?:하|해|함)|머\s?(?:하|해)|뭐하|하고\s?있|하는\s?중|중이(?:야|에요|세요|신가|냐|니)"
     r"|다니(?:세요|냐|니|시나|는\s?(?:곳|데))|소개|누구(?:야|세요|신가|냐)|어떤\s?(?:분|사람|일|활동)|무슨\s?(?:일|활동|과|전공|공부)"
     r"|전공|학년|학과|어디\s?(?:다녀|학교|소속)|소속")
-# 받은 말이 OWNER의 경험을 묻는가('해본 경험 있으세요?') — 지금 하는 일 묘사가 답의 전부면 그건 경험 답이라 지우지 않는다
 SELF_EXP_Q_RE = re.compile(r"경험|해\s?보(?:셨|신|셨어)|해\s?봤|해\s?본\s?적|써\s?보(?:셨|신)|써\s?봤|써\s?본\s?적")
-# 받은 말이 어떤 활동의 상태를 묻는가('플젝 어때?') — 그 활동 낱말이 답 문장에도 있으면 물은 것으로 본다
 SELF_STATE_Q_RE = re.compile(r"어때|어떰|어떠|어떻|할\s?만|괜찮|잘\s?(?:돼|되)|힘들|빡세|재밌|재미")
-# 문장 나누기: 마침표류 뒤, 또는 말끝 뒤에 '지금/요즘/저는…'으로 새 말이 시작될 때(구두점 없는 카톡 말)
 _SD_SPLIT_RE = re.compile(r"(?<=[.!?~])\s+|(?<=[어요다야지음네죠까군걸중ㅋㅎ])\s+(?=(?:지금|요즘|요새|현재|최근|저는|전|나는|난|저도|나도)\s)"
-                          r"|(?<=,)\s*(?=(?:지금|요즘|요새|현재)\s)")   # round5: '…정도고, 지금 동아리…'도 나눈다
-# round5(DIAG §4-2): 경험 질문에 답한 경험 말('만들어 본 정도'·'경험은 적어요')이 든 절은 지우지 않는다
+                          r"|(?<=,)\s*(?=(?:지금|요즘|요새|현재)\s)")
 SELF_EXP_WORD_RE = re.compile(r"(?:해|만들어|써|들어|가)\s?(?:본|봤)|경험|적어요|적어|적습니다|처음이")
 
 
-# round5(공개 방 답, round4 오픈채팅 #8 '저도 아직 배우는 중이에요', #4 '그건 제가 잘 모르겠네요~'):
-# 공개 방(단톡·오픈채팅)에서는 활동 낱말이 없어도 OWNER 자기 상태 단정(배우는 중·뉴비·초보·잘 모름·처음·해 봤다/안 해 봤다)을 묻지 않았으면 뺀다
 PUBLIC_SELF_STATE_RE = re.compile(
     r"(?:저도|저는|전|제가|나도|나는|난|내가)\s?[^.!?~\n]{0,20}?"
     r"(?:뉴비|초보|입문|문외한|학생|배우는\s?중|공부\s?중|배우고\s?있|공부하고\s?있|잘\s?(?:몰라|모르|모름)|모르겠|몰라|모릅니다"
     r"|처음(?:이|이에요|이라|입니다|봐|봤|들어|듣)|(?:안|못)\s?(?:해|써|들어|가|봐)\s?봤|(?:해|써|들어|가)\s?봤|경험\s?(?:이|은)?\s?(?:없|적|많))"
     r"|아직\s?(?:배우|공부|뉴비|초보|입문|잘\s?모)|(?:배우|공부하)는\s?중"
-    r"|^\s*(?:그건|그거는|그거|거기까진|그쪽은)?\s?(?:잘\s?)?(?:모르겠|몰라요|모릅니다)")   # 주어 없는 '그건 잘 모르겠네요'(r5 #4·#16)
+    r"|^\s*(?:그건|그거는|그거|거기까진|그쪽은)?\s?(?:잘\s?)?(?:모르겠|몰라요|모릅니다)")
 
 
 def _self_desc_unit(unit: str, text: str, public: bool = False) -> bool:
@@ -282,7 +243,7 @@ def _self_desc_unit(unit: str, text: str, public: bool = False) -> bool:
         return True
     if not (SELF_ACT_PROG_RE.search(unit) and SELF_ACT_NOUN_RE.search(unit)):
         return False
-    if SELF_STATE_Q_RE.search(text or ""):   # '플젝 어때?'에 '지금 하고 있는데 재밌어'는 물은 것
+    if SELF_STATE_Q_RE.search(text or ""):
         low = (text or "").lower().replace("플젝", "프로젝트")
         if any(n.lower().replace("플젝", "프로젝트") in low for n in SELF_ACT_NOUN_RE.findall(unit)):
             return False
@@ -307,7 +268,7 @@ def unasked_self_desc(text: str, reply: str, public: bool = False) -> tuple[str,
         for u in units:
             if _self_desc_unit(u, text, public) and not (exp_q and SELF_EXP_WORD_RE.search(u) and not SELF_INTRO_RE.search(u)):
                 cut.append(u.strip())
-                if keep and keep[-1].endswith(","):   # '…본 정도고,' 뒤 절을 지웠으면 말끝을 닫는다('정도고요')
+                if keep and keep[-1].endswith(","):
                     k = keep[-1].rstrip(",").rstrip()
                     keep[-1] = k + "요" if polite and k.endswith("고") else k
             else:
@@ -322,12 +283,11 @@ def unasked_self_desc(text: str, reply: str, public: bool = False) -> tuple[str,
     core = re.sub(r"[\s~!?.,…ㅋㅎㅠㅜ^♡:;)(]+", "", kept)
     if len(re.findall(r"[가-힣A-Za-z0-9]", core)) < 2 or re.fullmatch(r"(?:근데|그리고|그래서|아|오|음|어)+", core):
         if SELF_EXP_Q_RE.search(text or "") and not any(SELF_INTRO_RE.search(c) for c in cut):
-            return reply, []   # 경험을 물었고 답이 지금 하는 일뿐이면 그게 답(r4 리플레이 1번 과잉 삭제)
+            return reply, []
         kept = ""
     return kept, cut
 
 
-# 인용이 '받은 말'과 이어지는지 볼 때 무시하는 흔한 두 글자(어미·조사)
 _STOP_BIGRAMS = {"혹시", "하시", "하실", "있으", "으신", "신가", "나요", "까요", "가요", "세요", "해요", "니다", "습니", "합니",
                  "주세", "시나", "실까", "할까", "거죠", "거죵", "인가", "는데", "어요", "아요", "이에", "에요", "예요", "거야",
                  "하는", "하고", "해서", "하면", "그럼", "그거", "이거", "저거", "OWNER", "님이", "님은", "실거", "할거", "하겠"}
@@ -355,7 +315,7 @@ def _line_time(line: str, now):
         t = now.replace(month=mo, day=d, hour=h, minute=mi, second=0, microsecond=0)
     except ValueError:
         return None
-    if t - now > dt.timedelta(days=1):   # 12/31 줄을 1/1에 보면 작년
+    if t - now > dt.timedelta(days=1):
         try:
             t = t.replace(year=t.year - 1)
         except ValueError:
@@ -369,7 +329,6 @@ def owner_lines(ctx: list[str], max_age_h: float | None = None, now=None) -> lis
         now = dt.datetime.now().astimezone()
     out = []
     for line in ctx or []:
-        # B4(11/09): bot.fetch_messages가 준 줄(owner 속성)은 user_id로 정한 화자만 믿는다 — '나:' 글자는 위조될 수 있다
         if getattr(line, "owner", None) is False:
             continue
         m = OWNER_LINE_RE.match(line or "")
@@ -383,8 +342,6 @@ def owner_lines(ctx: list[str], max_age_h: float | None = None, now=None) -> lis
     return out
 
 
-# B16(11/09 round2 리플레이 32번): 상대가 자기·제3자 얘기를 하다가 '어떰?'처럼 짧게 물을 때 봇이 OWNER 자기 말('그 과목은 어려워')을
-# 되풀이해 답한 것. 상대 쪽 주어·계획 표지 + 평가 질문이면 대상이 OWNER이 아닐 수 있어 되풀이 답을 막는다(보류)
 OTHER_SUBJECT_RE = re.compile(
     r"(?<![가-힣])(?:나도|나는|난|내가|나한테|저도|저는|전|제가|저한테|우리\s?(?:애|형|누나|언니|오빠|동생|엄마|아빠))(?![가-힣])"
     r"|생각이었|생각인데|하려고|할려고|가려고|갈려고|들으려|들을\s?(?:건|거|까|생각)|갈\s?(?:건|거)\s?(?:데|라)|할\s?(?:건|거)\s?(?:데|라)"
@@ -400,7 +357,7 @@ def restate_target_problem(text: str, ctx: list | None, window: int = 8) -> str:
     lines = list(ctx or [])[-window:]
     other = [_body(str(x)) for x in lines if getattr(x, "owner", None) is False
              or (getattr(x, "owner", None) is None and not OWNER_LINE_RE.match(str(x) or ""))]
-    burst = []   # 받은 말 바로 앞의 상대 연속 줄(마지막 OWNER 줄 뒤)
+    burst = []
     for x in reversed(lines):
         if getattr(x, "owner", None) is True or (getattr(x, "owner", None) is None and OWNER_LINE_RE.match(str(x) or "")):
             break
@@ -419,9 +376,7 @@ def _body(line: str) -> str:
     return re.sub(r"^(?:\[[^\]]*\]\s*)?[^:]{1,40}:\s?", "", line or "", count=1)
 
 
-# 부정어: 인용과 답 중 한쪽에만 있으면 뜻이 뒤집힌다(11/09)
 NEG_RE = re.compile(r"(?<![가-힣])(?:안|못)(?![녕내전에쪽경부심정건과])|아니|아닌|아님|아냐|않|없|말자|ㄴㄴ")
-# 되풀이 답에서 내용어로 치지 않는 흔한 말(맞장구·인사·호칭·어미)
 RESTATE_COMMON = ("넵", "네네", "넹", "넴", "예예", "응응", "감사", "고마", "봬요", "뵈요", "뵐게", "뵙겠", "봐요", "그럼", "그래",
                   "맞아", "맞습", "맞죠", "저도", "제가", "저는", "나도", "내가", "나는", "일단", "혹시", "아마", "오키", "알겠",
                   "그거", "이거", "그렇", "네요", "해요", "합니다", "입니다", "이요", "요요", "우리", "님도", "ㅎㅎ", "ㅋㅋ", "아하", "아아")
@@ -485,16 +440,16 @@ def soft_reply_problem(reply: str, text: str = "") -> str:
     if SOFT_YES_START_RE.search(r):
         return "'네/응'으로 시작"
     m = STATE_CLAIM_RE.search(r)
-    if m:   # B7: 미루는 답에 '안 해봤어/없어/몰라' 같은 OWNER 상태 단정이 섞이면 안 된다(dm_replay 21번: 해 본 상태였음)
+    if m:
         return f"상태 단정({m.group(0)})"
     if not SOFT_DEFER_RE.search(r):
         return "미루는 말이 없음"
-    rest = SOFT_DEFER_FRAME_RE.sub(" ", r)   # 미루는 말 틀('확인해보고', '말해줄게')을 빼고 남은 말에 수락·약속이 있으면 거절
+    rest = SOFT_DEFER_FRAME_RE.sub(" ", r)
     m = SOFT_ACCEPT_LEFT_RE.search(rest)
     if m:
         return f"미루는 말 + 수락·약속({m.group(0)})"
     left = [w for w in re.findall(r"[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z]+", rest) if not SOFT_NEUTRAL_TOKEN_RE.fullmatch(w)]
-    if left:   # '꼭 도와줄게', '될걸', '거의 확실해', '빠질 일 없어'처럼 미룸 밖에 다른 말이 남으면 확답일 수 있어 거절
+    if left:
         return f"미루는 말 밖에 다른 말({left[0]})"
     if ai_hold_re().search(text or ""):
         return "AI냐는 질문"
@@ -566,12 +521,12 @@ def render_card(st: Store, chat_id: str, category: str, name: str = "", limit: i
     core_txt = "\n".join(core)[: st.schema.get("limits", {}).get("me_core_chars", 350) + 600]
     card = "\n".join(lines)
     out = card + "\n" + core_txt
-    if len(out) > limit:   # 자르기 순서: 최근 일 → 함께 하는 곳 → 관계는 남김
+    if len(out) > limit:
         out = out[:limit]
     return st.mask(out)
 
 
-BENIGN_RE = re.compile(r"건강\s?(?:챙기|조심|하세요|하시|히|잘)|건강한\s?하루")   # 인사말은 비공개 주제가 아님
+BENIGN_RE = re.compile(r"건강\s?(?:챙기|조심|하세요|하시|히|잘)|건강한\s?하루")
 
 
 def output_check(reply: str, st: Store, chat_id: str, category: str | None = None) -> str:
