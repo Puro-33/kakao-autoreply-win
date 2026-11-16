@@ -211,7 +211,8 @@ def cancel(chat_hwnd: int) -> bool:
     return not in_reply_mode(chat_hwnd)
 
 
-def enter(chat_hwnd: int, target_text: str, guard=None, pids=None, max_probes: int = 24) -> dict:
+def enter(chat_hwnd: int, target_text: str, guard=None, pids=None, max_probes: int = 24,
+          max_pages: int = 4) -> dict:
     """target_text 말풍선의 답글 모드를 켠다(전송은 하지 않는다).
 
     guard 는 그 방의 마지막 메시지 id를 돌려주는 함수다. 시작과 끝의 값이 다르면 새 글이 온 것으로 보고 취소한다.
@@ -243,17 +244,27 @@ def enter(chat_hwnd: int, target_text: str, guard=None, pids=None, max_probes: i
         _close_menus(pids)
         user32.PostMessageW(lst, 0x0115, 7, 0)
         time.sleep(0.3)
-        lh = _rect(lst)[3]
         found = None
-        y = lh - round(15 * s)
-        while y > SCAN_TOP_MARGIN * s and r["probes"] < max_probes:
-            r["probes"] += 1
-            got = copy_at(lst, x, y, pids)
-            if got is not None and _norm(got) == want:
-                found = y
+        for page in range(max_pages + 1):
+            if page:
+                user32.PostMessageW(lst, 0x0115, 2, 0)
+                time.sleep(0.6)
+            lh = _rect(lst)[3]
+            y = lh - round(15 * s)
+            for _ in range(max_probes):
+                if y <= SCAN_TOP_MARGIN * s:
+                    break
+                r["probes"] += 1
+                got = copy_at(lst, x, y, pids)
+                if got is not None and _norm(got) == want:
+                    found = y
+                    break
+                y -= round(SCAN_STEP * s)
+            if found is not None:
                 break
-            y -= round(SCAN_STEP * s)
+        r["pages"] = page
         if found is None:
+            user32.PostMessageW(lst, 0x0115, 7, 0)
             r["error"] = "대상 글을 목록에서 못 찾음"
             return r
         m = _menu_at(lst, x, found, pids)
