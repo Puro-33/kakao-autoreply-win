@@ -197,6 +197,68 @@ def _settle(h: int, timeout: float = 1.0) -> None:
         last = cur
 
 
+SEARCH_ICON_FROM_RIGHT = 111
+SEARCH_CLOSE_FROM_RIGHT = 23.5
+SEARCH_ROW_Y = 110
+HEADER_ICON_Y = 57.5
+
+
+def _search_edit(chat_hwnd: int) -> int | None:
+    return next((h for h in PK.descendants(chat_hwnd) if PK.class_name(h) == "Edit"), None)
+
+
+def search_open(chat_hwnd: int) -> bool:
+    e, lst = _search_edit(chat_hwnd), _list(chat_hwnd)
+    if not e or not lst or user32.IsIconic(chat_hwnd):
+        return False
+    ex, ey, ew, eh = _rect(e)
+    return ew > 0 and _rect(lst)[1] >= ey + eh
+
+
+def close_search(chat_hwnd: int) -> bool:
+    if not search_open(chat_hwnd):
+        return True
+    s = _scale(chat_hwnd)
+    try:
+        PK.set_text(_search_edit(chat_hwnd), "")
+    except PK.KakaoWindowError:
+        pass
+    _mouse(chat_hwnd, _rect(chat_hwnd)[2] - round(SEARCH_CLOSE_FROM_RIGHT * s), round(SEARCH_ROW_Y * s))
+    PK._wait(lambda: not search_open(chat_hwnd), 1.0, 0.02)
+    return not search_open(chat_hwnd)
+
+
+def search_jump(chat_hwnd: int, text: str) -> bool:
+    """방 안 검색으로 그 글이 있는 곳까지 목록을 옮긴다. 검색은 검색칸에 키보드 포커스가 있어야 실행된다.
+    창을 앞으로 가져오지는 않지만, 카톡 안의 입력 포커스는 검색칸으로 옮겨진다."""
+    s = _scale(chat_hwnd)
+    if not search_open(chat_hwnd):
+        _mouse(chat_hwnd, _rect(chat_hwnd)[2] - round(SEARCH_ICON_FROM_RIGHT * s), round(HEADER_ICON_Y * s))
+        if not PK._wait(lambda: search_open(chat_hwnd), 1.0, 0.02):
+            return False
+    edit = _search_edit(chat_hwnd)
+    first = (text.strip().splitlines() or [""])[0]
+    key = "".join(c if " " <= c <= "\uffff" and not c.isspace() or c == " " else "\n" for c in first).split("\n")[0][:30].strip()
+    if len(key) < 4:
+        return False
+    tid = user32.GetWindowThreadProcessId(chat_hwnd, None)
+    me = kernel32.GetCurrentThreadId()
+    attached = bool(user32.AttachThreadInput(me, tid, True))
+    try:
+        user32.SetFocus(edit)
+        PK.set_text(edit, "")
+        for c in key:
+            user32.PostMessageW(edit, 0x0102, ord(c), 1)
+        time.sleep(0.4)
+        user32.PostMessageW(edit, 0x0100, 0x0D, 1)
+        user32.PostMessageW(edit, 0x0101, 0x0D, 0xC0000001)
+        time.sleep(2.2)
+    finally:
+        if attached:
+            user32.AttachThreadInput(me, tid, False)
+    return True
+
+
 def cancel(chat_hwnd: int) -> bool:
     """답글 모드를 끈다(배너의 X). 꺼졌으면 True."""
     _settle(PK.input_controls(chat_hwnd)[0], 0.6)
@@ -244,25 +306,37 @@ def enter(chat_hwnd: int, target_text: str, guard=None, pids=None, max_probes: i
         _close_menus(pids)
         user32.PostMessageW(lst, 0x0115, 7, 0)
         time.sleep(0.3)
-        found = None
-        for page in range(max_pages + 1):
-            if page:
-                user32.PostMessageW(lst, 0x0115, 2, 0)
-                time.sleep(0.6)
-            lh = _rect(lst)[3]
-            y = lh - round(15 * s)
+        def scan():
+            y = _rect(lst)[3] - round(15 * s)
             for _ in range(max_probes):
                 if y <= SCAN_TOP_MARGIN * s:
-                    break
+                    return None
                 r["probes"] += 1
                 got = copy_at(lst, x, y, pids)
                 if got is not None and _norm(got) == want:
-                    found = y
-                    break
+                    return y
                 y -= round(SCAN_STEP * s)
-            if found is not None:
-                break
-        r["pages"] = page
+            return None
+
+        lh = _rect(lst)[3]
+        found = scan()
+        r["via"] = "visible"
+        if found is None and search_jump(chat_hwnd, target_text):
+            lh = _rect(lst)[3]
+            found = scan()
+            r["via"] = "search"
+        if found is None:
+            close_search(chat_hwnd)
+            user32.PostMessageW(lst, 0x0115, 7, 0)
+            time.sleep(0.3)
+            r["via"] = "pageup"
+            for _ in range(max_pages):
+                user32.PostMessageW(lst, 0x0115, 2, 0)
+                time.sleep(0.6)
+                lh = _rect(lst)[3]
+                found = scan()
+                if found is not None:
+                    break
         if found is None:
             user32.PostMessageW(lst, 0x0115, 7, 0)
             r["error"] = "대상 글을 목록에서 못 찾음"
@@ -322,5 +396,10 @@ def enter(chat_hwnd: int, target_text: str, guard=None, pids=None, max_probes: i
                 pass
         if saved is not None:
             clip_set(saved)
+        if not r["ok"]:
+            try:
+                close_search(chat_hwnd)
+            except Exception:  # noqa: BLE001
+                pass
         if not r["ok"] and was_iconic:
             user32.ShowWindow(chat_hwnd, 6)

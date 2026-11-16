@@ -573,7 +573,7 @@ def send(room_name: str, text: str, send: bool = False, *, pids=None, thread_id=
             t = time.perf_counter()
             th = PT.enter(hwnd, thread_text, guard=thread_guard, pids=pids)
             tm["thread_enter"] = _ms(t)
-            r["thread"] = {k: th.get(k) for k in ("ok", "probes", "error", "moved", "restored", "clipboard_nontext_lost")}
+            r["thread"] = {k: th.get(k) for k in ("ok", "probes", "via", "error", "moved", "restored", "clipboard_nontext_lost")}
             if not th.get("ok"):
                 r["error"] = "스레드 답글 모드 실패(본문으로 보내지 않음): " + str(th.get("error"))
                 tm["total"] = _ms(t_all)
@@ -586,6 +586,7 @@ def send(room_name: str, text: str, send: bool = False, *, pids=None, thread_id=
                     if not r["confirmed"] and not is_empty_input(get_text(inp)):
                         set_text(inp, "")
                     r["thread"]["mode_left_on"] = not PT.cancel(hwnd)
+                PT.close_search(hwnd)
                 if th.get("restored"):
                     user32.ShowWindow(hwnd, 6)
             except Exception as e:  # noqa: BLE001
