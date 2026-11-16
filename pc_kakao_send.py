@@ -19,8 +19,8 @@
   6) PostMessage WM_KEYDOWN/WM_KEYUP VK_RETURN → 카카오톡이 전송
   7) 입력칸이 비워지는지 confirm_timeout 동안 확인 (confirmed)
 
-스레드(오픈채팅 댓글) 답장: PC 창으로는 지원하지 않는다. thread_id를 주면 보내지 않고
-거부한다(채팅방 본문으로 새는 것을 막기 위해). 이유는 THREAD_NOTE 참고.
+스레드(오픈채팅 댓글) 답장: thread_id 와 thread_text(대상 글)를 주면 pc_kakao_thread 로 그 말풍선의 답글 모드를
+켠 뒤 보낸다. 대상 글을 못 찾거나 확인이 어긋나면 보내지 않는다(채팅방 본문으로 새지 않게).
 
 안전장치: 기본 dry-run, 대상 창은 기본적으로 KakaoTalk.exe 프로세스 소유만(pids로 바꿀 수 있음,
 테스트는 가짜 창 프로세스 pid만 넘김), 초안 덮어쓰기 거부, 입력칸 여러 개면 거부, 모듈 잠금으로 한 번에 하나.
@@ -36,7 +36,7 @@ import time
 
 __all__ = [
     "find_chat_window", "find_main_window", "find_search_edit", "list_chat_windows",
-    "open_chat", "send", "deliver", "get_text", "set_text", "press_enter", "probe", "THREAD_NOTE",
+    "open_chat", "send", "deliver", "get_text", "set_text", "press_enter", "probe",
 ]
 
 # ---- 카카오톡 PC 창 구조 (26.7.0.5255 기준 추정. 업데이트로 바뀌면 여기만 고친다) ----
@@ -49,12 +49,7 @@ SEARCH_EDIT_CLASS = "Edit"
 # 메인 창 → EVA_ChildWindow → EVA_Window(친구 탭), EVA_Window(채팅 탭) → Edit(검색칸)
 SEARCH_CHAIN = ("EVA_ChildWindow", "EVA_Window", "EVA_Window", SEARCH_EDIT_CLASS)
 
-THREAD_NOTE = (
-    "PC 카카오톡은 스레드(오픈채팅 댓글) 답장을 자동화에 열어 두지 않았다. 메시지 목록"
-    "(EVA_VH_ListControl_Dblclk)은 직접 그리는 컨트롤이라 메시지마다 창 핸들·UIA 요소·메시지 id가 없고,"
-    " 스레드는 특정 메시지를 마우스로 눌러야 열린다. 그래서 Iris처럼 threadId로 특정 글의 스레드에"
-    " 보낼 방법이 없다. 스레드 답장은 Iris /reply(threadId)를 계속 써야 한다."
-)
+_good_edit_index: int | None = None
 
 WM_SETTEXT = 0x000C
 WM_GETTEXT = 0x000D
@@ -372,6 +367,7 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
     열린 방 제목이 room_name과 다르면(비슷한 이름이 먼저 걸림) 그 창을 닫고 실패로 돌려준다.
     방을 열면 안 읽은 메시지가 읽음 처리된다(상대에게 1이 사라짐).
     """
+    global _good_edit_index
     t_all = time.perf_counter()
     r = {"ok": False, "room": room_name, "execute": execute, "timings_ms": {}, "steps": []}
     t = time.perf_counter()
@@ -414,7 +410,10 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
                 user32.ShowWindow(main, 8); r["main_restored"] = "hidden"; time.sleep(0.4)
             else:
                 break   # 메인 창이 이미 보이는 상태였다 → 다시 해도 같다
-        for i, edit in enumerate(edits):
+        order = list(enumerate(edits))
+        if _good_edit_index is not None and _good_edit_index < len(order):
+            order.insert(0, order.pop(_good_edit_index))
+        for i, edit in order:
             try:
                 set_text(edit, room_name)
             except KakaoWindowError:
@@ -431,6 +430,7 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
             if hwnd:
                 r["search_edit"] = edit
                 r["search_edit_index"] = i
+                _good_edit_index = i
                 break
         if hwnd:
             break
@@ -514,6 +514,7 @@ def deliver(input_hwnd: int, text: str, confirm_timeout: float = 1.0, timings: d
 
 
 def send(room_name: str, text: str, send: bool = False, *, pids=None, thread_id=None,
+         thread_text: str | None = None, thread_guard=None,
          auto_open: bool = False, overwrite_draft: bool = False, confirm_timeout: float = 1.0,
          probe_input: bool = False) -> dict:
     """room_name 채팅창으로 text를 보낸다. send=False(기본)면 보내지 않고 할 일만 돌려준다.
@@ -525,8 +526,8 @@ def send(room_name: str, text: str, send: bool = False, *, pids=None, thread_id=
     t_all = time.perf_counter()
     tm: dict = {}
     r = {"ok": False, "dry_run": not send, "room": room_name, "timings_ms": tm, "steps": []}
-    if thread_id:
-        r["error"] = "스레드 답장은 PC 창으로 못 보냄(본문으로 새지 않게 거부). " + THREAD_NOTE
+    if thread_id and not (thread_text or "").strip():
+        r["error"] = "스레드 답장인데 대상 글(thread_text)이 없어 보내지 않음(본문으로 새지 않게 거부)"
         return r
     if not text or not text.strip():
         r["error"] = "빈 글"
@@ -590,8 +591,29 @@ def send(room_name: str, text: str, send: bool = False, *, pids=None, thread_id=
             r["ok"] = True
             tm["total"] = _ms(t_all)
             return r
+        th = None
+        if thread_id:
+            import pc_kakao_thread as PT
+            t = time.perf_counter()
+            th = PT.enter(hwnd, thread_text, guard=thread_guard, pids=pids)
+            tm["thread_enter"] = _ms(t)
+            r["thread"] = {k: th.get(k) for k in ("ok", "probes", "error", "moved", "restored", "clipboard_nontext_lost")}
+            if not th.get("ok"):
+                r["error"] = "스레드 답글 모드 실패(본문으로 보내지 않음): " + str(th.get("error"))
+                tm["total"] = _ms(t_all)
+                return r
         d = deliver(inp, text, confirm_timeout, tm)
         r.update(ok=d["ok"], confirmed=d.get("confirmed", False))
+        if th:
+            try:
+                if PT.in_reply_mode(hwnd):
+                    if not r["confirmed"] and not is_empty_input(get_text(inp)):
+                        set_text(inp, "")
+                    r["thread"]["mode_left_on"] = not PT.cancel(hwnd)
+                if th.get("restored"):
+                    user32.ShowWindow(hwnd, 6)
+            except Exception as e:  # noqa: BLE001
+                r["thread"]["cleanup_error"] = type(e).__name__
         if not d["ok"]:
             r["error"] = d["error"]
         tm["total"] = _ms(t_all)

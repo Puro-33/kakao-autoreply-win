@@ -29,7 +29,8 @@ def main(keys_mode: str = "auto") -> int:
         print("config.json 이 없습니다. config.example.json 을 복사해 만드세요."); return 1
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     port = int(cfg.get("iris_url", "http://127.0.0.1:3001").rsplit(":", 1)[1].split("/")[0])
-    threading.Thread(target=lambda: iris_native.serve(port=port, keys_mode=keys_mode), daemon=True).start()
+    threading.Thread(target=lambda: iris_native.serve(port=port, keys_mode=keys_mode,
+                                                            poll_sec=float(cfg.get("native_poll_sec", 2.0))), daemon=True).start()
     for _ in range(180):
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{port}/config", timeout=3).read()

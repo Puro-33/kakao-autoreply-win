@@ -205,6 +205,19 @@ class NativeIris:
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
+    def _thread_target(self, room_id: str, thread_id: str) -> dict:
+        """스레드 답장의 대상 글. 남이 쓴 텍스트이고 그 뒤에 같은 글이 또 없을 때만 돌려준다."""
+        src = self.query("SELECT message, type, user_id FROM chat_logs WHERE chat_id = ? AND _id = ? LIMIT 1",
+                         [room_id, thread_id])
+        text = (src[0]["message"] or "") if src else ""
+        if not text.strip() or src[0]["type"] != 1 or str(src[0]["user_id"]) == str(self.my_id):
+            return {}
+        if self.query("SELECT COUNT(*) n FROM chat_logs WHERE chat_id = ? AND _id > ? AND message = ?",
+                      [room_id, thread_id, text])[0]["n"]:
+            return {}
+        return {"thread_id": thread_id, "thread_text": text,
+                "thread_guard": lambda: self.query("SELECT MAX(_id) m FROM chat_logs WHERE chat_id = ?", [room_id])[0]["m"]}
+
     def reply(self, body: dict, sender=None) -> dict:
         """봇의 /reply 요청을 PC 카톡 창으로 보낸다. sender(title, text) 는 테스트용 주입점."""
         room_id = str(body.get("room") or "")
@@ -225,12 +238,21 @@ class NativeIris:
                 pass
         if not title:
             title = next((r["name"] for r in self.acct.rooms if r["id"] == room_id), room_id)
+        th = {}
+        th_id = str(body.get("threadId") or "").strip()
+        if th_id and th_id != "0":
+            th = self._thread_target(room_id, th_id)
+            if not th:
+                self.log(f"스레드 전송 거부(대상 글을 특정할 수 없음) room=..{room_id[-4:]}")
+                return {"success": False, "native_pc": True, "error": "thread target not usable"}
         try:
             if sender is None:
                 import pc_kakao_send as PK
-                r = PK.send(title, text, send=True, auto_open=True)
+                r = PK.send(title, text, send=True, auto_open=True, **th)
+                if th and not r.get("ok") and r.get("thread", {}).get("moved"):
+                    r = PK.send(title, text, send=True, auto_open=True, **th)
             else:
-                r = sender(title, text)
+                r = sender(title, text, **th)
             # 단계별 전송 시간을 남긴다(느린 구간을 찾는 용도). 글 내용·방 이름은 적지 않는다.
             try:
                 tm = dict(r.get("timings_ms") or {})

@@ -393,3 +393,23 @@ def test_read_since_none_when_unreadable(fake_acc):
     assert a.read_since("11", 3) == []
     sig = a.signature("11")
     assert sig[0] is not None and sig[1] is None and a.signature("999") == (None, None)
+
+
+def test_thread_target_rules(fake_acc):
+    import iris_native as IN
+    ni = IN.NativeIris(_acct(fake_acc), verbose=lambda *x: None)
+    ni.db.executemany(
+        "INSERT INTO chat_logs(_id,id,chat_id,user_id,type,message,attachment,v,created_at,thread_id,scope) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        [(9001, 9001, "22", "u1", 1, "윈도우 카톡 봇 어떻게 해요?", "", "", 0, 0, "1"),
+         (9002, 9002, "22", "u1", 2, "사진", "", "", 0, 0, "1"),
+         (9003, 9003, "22", ni.my_id, 1, "내가 쓴 글", "", "", 0, 0, "1"),
+         (9004, 9004, "22", "u2", 1, "같은 글", "", "", 0, 0, "1"),
+         (9005, 9005, "22", "u3", 1, "같은 글", "", "", 0, 0, "1")])
+    ok = ni._thread_target("22", "9001")
+    assert ok["thread_text"] == "윈도우 카톡 봇 어떻게 해요?" and ok["thread_guard"]() == 9005
+    assert ni._thread_target("22", "9002") == {}
+    assert ni._thread_target("22", "9003") == {}
+    assert ni._thread_target("22", "9004") == {}
+    assert ni._thread_target("22", "777") == {}
+    assert ni._thread_target("22", "9005")["thread_id"] == "9005"
