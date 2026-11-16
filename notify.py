@@ -20,11 +20,10 @@ import time
 log = logging.getLogger("bot")
 
 COOLDOWN_SEC = 3600.0
-# 시작 메뉴 바로가기가 있는 Windows PowerShell의 AppUserModelID(따로 등록하지 않아도 토스트가 뜬다)
 APP_ID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
 _LAST: dict[str, float] = {}
 _LOCK = threading.Lock()
-HISTORY: collections.deque = collections.deque(maxlen=50)   # (시각, kind, 제목, 내용, 띄움 여부) — !상태·시험용
+HISTORY: collections.deque = collections.deque(maxlen=50)
 
 
 def _xml(s: str) -> str:
@@ -33,7 +32,6 @@ def _xml(s: str) -> str:
 
 
 def _script(title: str, body: str) -> str:
-    # XML 이스케이프로 작은따옴표가 남지 않으므로 PowerShell 작은따옴표 문자열에 그대로 넣어도 된다
     xml = ('<toast><visual><binding template="ToastGeneric">'
            f'<text>{_xml(title)}</text><text>{_xml(body)}</text></binding></visual></toast>')
     return ("$ErrorActionPreference='Stop'\n"

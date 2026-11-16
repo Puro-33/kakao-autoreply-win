@@ -94,7 +94,7 @@ def main() -> None:
                 continue
             mine = str(x.get("user_id")) == me
             if mine and int(x.get("created_at") or 0) >= BOT_SEND_START:
-                continue   # 봇이 보냈을 수 있는 내 메시지는 제외(bot_self)
+                continue
             ids.append(int(x["_id"]))
             lines.append(("나: " if mine else "상대: ") + x["message"].strip()[:300])
         if len(lines) < 3:

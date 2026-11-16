@@ -20,21 +20,19 @@ import time
 from pathlib import Path
 
 SCOPES = ("모두", "학교·교수·친구", "친구")
-KST = dt.timezone(dt.timedelta(hours=9))   # bot._iso가 쓰는 한국 시간(PC 시간대와 무관)
+KST = dt.timezone(dt.timedelta(hours=9))
 MEMO_HEAD_PREFIX = "## 메모"
 CAND_PREFIX = "- 후보: "
-PUSH_GRACE_SEC = 600   # 질문·일기 요청을 큐에 넣은 뒤 카톡 전송까지 기다려 주는 시간(점검이 '보내는 중'으로 봄)
+PUSH_GRACE_SEC = 600
 
-# tools/apply_profile_review.PRIVATE_RE 와 같은 것 + 더 넓게(이 루프는 OWNER이 자유롭게 쓴 일기를 받기 때문)
 BASE_PRIVATE_RE = re.compile(r"입시|성적|학점|점수|병역|군대|등록금|분납|계좌|송금|대출|월세|가족|건강|병원|학번"
                              r"|\d{2,3}-\d{3,4}-\d{4}|@\w+\.\w+|sk-[A-Za-z0-9]")
 EXTRA_PRIVATE_RE = re.compile(
     r"입대|전역|군\s?복무|훈련소|예비군|공익|용돈|빚|돈(?:이|을|은|도|만|으로)?(?![가-힣])|월급|알바비|장학금|생활비|카드값|카드\s?번호|통장|이체"
     r"|엄마|아빠|부모|어머니|아버지|누나|언니|동생|할머니|할아버지|친척|집안"
     r"|아파|아픈|아팠|몸살|감기|두통|우울|불안|약\s?먹|진료|수술|입원|치료|상담\s?받"
-    r"|학생\s?번호|주민|전화\s?번호|휴대폰\s?번호|연락처|이메일|메일\s?주소|주소(?:는|가|지)|\d{7,}"   # 학번·계좌·번호(숫자 7자리+)
+    r"|학생\s?번호|주민|전화\s?번호|휴대폰\s?번호|연락처|이메일|메일\s?주소|주소(?:는|가|지)|\d{7,}"
     r"|비밀\s?번호|비번|패스워드|password|아이디(?!어)|계정|로그인|토큰|token|api\s?키|API\s?키|키\s?값|secret", re.I)
-# 다른 사람을 가리키는 꼴(이름 + 호칭)
 OTHER_PERSON_RE = re.compile(r"[가-힣]{2,4}\s?(?:님|씨|교수님?|선배|후배|쌤|선생님?|형(?=[이은한께])|누나)")
 BANMAL_BAD_END_RE = re.compile(r"(?:요|니다|세요|십니까|습니까|까요)\s*[?.!~]*$")
 Q_LINE_RE = re.compile(r"^\s*[Qq]\s?(\d{1,2})\s*[.:)\]\-]?\s*(.*)$")
@@ -68,7 +66,6 @@ def key(src: str, text: str) -> str:
     return f"{src}:" + hashlib.sha1(norm(text).encode("utf-8")).hexdigest()[:10]
 
 
-# ───────────────────────── 질문 후보 ─────────────────────────
 def topic_words(text: str, stop=(), names=(), n: int = 3) -> str:
     """(a) 보류한 받은 말에서 주제어만(두 글자 이상, 흔한 말·사람 이름·비공개 뺌). 원문은 남기지 않는다."""
     toks = []
@@ -106,7 +103,7 @@ def profile_questions(text: str) -> list[dict]:
     holes, stale = [], []
     for head, scope, lines in profile_parse(text):
         if not scope:
-            continue   # 범위 없는 절(메모)은 묻지 않는다
+            continue
         title = re.sub(r"^##\s+|\s*\[[^\]]*\]\s*$", "", head).strip()
         real = [l for l in lines if not PLACEHOLDER_RE.search(l)]
         if not real:
@@ -133,7 +130,6 @@ def activity_questions(owner_texts: list[str], profile_text: str, names=()) -> l
             continue
         for m in ACT_NOUN_RE.finditer(t):
             noun = m.group(0)
-            # 앞에 붙은 꾸밈말 한 덩어리까지(예: 'AI 공모전'), 사람 이름·비공개면 낱말만
             pre = re.findall(r"([A-Za-z0-9가-힣]{2,10})\s?$", t[:m.start()])
             phrase = (pre[0] + " " + noun) if pre and not names_hit(pre[0], names) and not private_hit(pre[0]) \
                 and not re.fullmatch(r"[가-힣]*(?:이|가|은|는|을|를|도|에|랑)", pre[0]) else noun
@@ -146,10 +142,6 @@ def activity_questions(owner_texts: list[str], profile_text: str, names=()) -> l
     return out
 
 
-# 11/11 OWNER 지적(11/09 23:50·11/10 22:44에 같은 Q1·Q2가 다시 나감, 부전공은 11/09에 이미 확인):
-# 최근 CONFIRM_DAYS일 안에 OWNER이 확인한 사실은 묻지 않는다. 근거는 profile.slim.md 메모 절의 두 가지 줄
-#   '- 확인 YYYY-MM-DD: 낱말, 낱말'           → 그 낱말이 든 질문 후보를 뺀다
-#   '- YYYY-MM-DD … 직접 확인한 내용으로 채움'  → 그날 프로필 전체를 확인했다고 보고 '아직 맞아?'(stale) 후보를 뺀다
 CONFIRM_DAYS = 7
 CONFIRM_LINE_RE = re.compile(r"^-\s*확인\s+(\d{4}-\d{2}-\d{2})\s*:\s*(.+)$")
 FILLED_LINE_RE = re.compile(r"^-\s*(\d{4}-\d{2}-\d{2})\s.*직접\s?확인한\s?내용으로\s?채움")
@@ -219,7 +211,6 @@ def clean_question(q: str, names=()) -> str:
     return q
 
 
-# ───────────────────────── 답 나누기·일기 파일 ─────────────────────────
 def split_answer(text: str) -> list[tuple[int | None, str]]:
     """'Q1 …'로 시작하는 줄부터 다음 'Qn' 줄·빈 줄 전까지는 그 질문의 답, 나머지는 일기(None)."""
     parts: list[list] = []
@@ -253,7 +244,6 @@ def diary_append(diary_dir: Path, when: dt.datetime, title: str, body: str) -> P
     return p
 
 
-# ───────────────────────── 사실 뽑기(Claude 출력 검사) ─────────────────────────
 def extract_prompt(sections: list[str]) -> str:
     return (
         "너는 OWNER 본인의 메모를 정리한다. 아래 [직접 답](OWNER이 질문에 답한 것)과 [일기]에서, 다른 사람이 OWNER에게 "
@@ -288,7 +278,7 @@ def vet_fact(f: dict, names=()) -> tuple[dict | None, str]:
     """(정리된 사실 또는 None, 버린 이유)."""
     fact = " ".join(str(f.get("fact") or "").split()).lstrip("- ").rstrip(".").strip()
     section = " ".join(re.sub(r"[\[\]#\n]", "", str(f.get("section") or "")).split())[:15] or "하는 일"
-    if section.startswith("메모"):   # '## 메모(봇에 안 넣음)'과 헷갈리는 절 이름은 안 쓴다(후보 줄이 봇이 읽는 절로 새지 않게)
+    if section.startswith("메모"):
         section = "기타"
     scope = str(f.get("scope") or "").strip()
     scope = scope if scope in SCOPES else "친구"
@@ -296,12 +286,11 @@ def vet_fact(f: dict, names=()) -> tuple[dict | None, str]:
         return None, "길이"
     if private_hit(fact) or private_hit(section):
         return None, "비공개"
-    if names_hit(fact, names) or names_hit(section, names):   # 절 이름(새 '## …' 머리줄)에도 다른 사람 이름 금지
+    if names_hit(fact, names) or names_hit(section, names):
         return None, "다른 사람"
     return {"from": str(f.get("from") or ""), "section": section, "scope": scope, "fact": fact}, ""
 
 
-# ───────────────────────── 프로필 파일 고치기 ─────────────────────────
 def _backup(profile: Path) -> Path:
     bak = profile.with_name(f"{profile.name}.bak-{dt.datetime.now():%Y%m%d%H%M%S%f}")
     shutil.copy2(profile, bak)
@@ -447,7 +436,6 @@ def verify_feedback(fb: str, before: str, after: str) -> tuple[bool, str]:
     return True, f"피드백의 {len(put) + len(cand)}줄이 파일에 새로 있음"
 
 
-# ───────────────────────── 루프 점검('!루프점검'·tools/check_diary_loop.py) ─────────────────────────
 def _ts(s) -> float:
     try:
         return dt.datetime.strptime(str(s), "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST).timestamp()
@@ -476,7 +464,7 @@ def push_delivery(d: dict, delivery: dict | None, now: float | None = None) -> t
     q_at = max(_ts(d.get("last_q_sent")), _ts(d.get("last_diary_req")))
     if not q_at:
         return None, "보낸 질문·일기 요청 없음"
-    if "last_push_sent_at" in d and _ts(d.get("last_push_sent_at")) < q_at:   # 키가 없으면(예전 기록) 이 판단은 건너뜀
+    if "last_push_sent_at" in d and _ts(d.get("last_push_sent_at")) < q_at:
         if now - q_at < PUSH_GRACE_SEC:
             return None, "보내는 중(큐)"
         return False, f"보냈다는 기록({_hm(q_at)})만 있고 Iris 전송도 없음 — 보내기 막힘으로 보류됐거나 전송 실패"
@@ -513,7 +501,7 @@ def loop_check(d: dict, profile_text: str, diary_dir: Path, enabled: bool = True
     elif p_at >= q_at or "last_push_sent_at" not in d:
         q_ok = True
     else:
-        q_ok = None if now - q_at < PUSH_GRACE_SEC else False   # 큐에서 보내는 중이면 아직 판단 안 함
+        q_ok = None if now - q_at < PUSH_GRACE_SEC else False
     rows.append(("질문·일기 요청 보냄", q_ok,
                  f"마지막 {d.get('last_q_sent') or '-'} / 일기 요청 {d.get('last_diary_req') or '-'}"
                  f" / 카톡 전송 {d.get('last_push_sent_at') or '-'}"))

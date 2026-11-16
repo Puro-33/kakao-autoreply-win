@@ -40,7 +40,6 @@ def analyze_directory(directory: str, page_size: int = 4096) -> dict:
     if page_size not in PAGE_SIZES:
         raise ValueError("unsupported sampling page size")
     root = Path(directory)
-    # Explicit scandir avoids glob implementations silently suppressing access errors.
     with os.scandir(root) as entries:
         paths = sorted(
             Path(e.path) for e in entries

@@ -30,7 +30,7 @@ N = int(sys.argv[sys.argv.index("--n") + 1]) if "--n" in sys.argv else 16
 pairs = json.loads((ROOT / "ontology" / "room_pairs.json").read_text(encoding="utf-8"))[-N:]
 examples = json.loads((ROOT / "ontology" / "room_reply_examples.json").read_text(encoding="utf-8"))
 ex_block = "\n".join("- " + e.replace("\n", " ")[:90] for e in examples[-40:])
-RULES = "누구나 들어올 수 있는 고민 상담방입니다. 고민은 길게 적고, 답은 댓글로 남깁니다. 어린 학생도 있을 수 있으니 욕설·도배는 금지입니다."   # 예시 공지(지어낸 것). 실제 방 공지로 바꿔 쓴다
+RULES = "누구나 들어올 수 있는 고민 상담방입니다. 고민은 길게 적고, 답은 댓글로 남깁니다. 어린 학생도 있을 수 있으니 욕설·도배는 금지입니다."
 
 COMMON = f"""너는 카카오톡 오픈채팅 '고민 상담방'에 들어와 있는 한 명의 참여자다(계정 주인 OWNER 대신, OWNER으로서 쓴다. 'AI·봇'이라고 하지 않는다).
 [방 공지] {RULES}

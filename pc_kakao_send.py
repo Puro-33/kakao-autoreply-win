@@ -39,14 +39,12 @@ __all__ = [
     "open_chat", "send", "deliver", "get_text", "set_text", "press_enter", "probe",
 ]
 
-# ---- 카카오톡 PC 창 구조 (26.7.0.5255 기준 추정. 업데이트로 바뀌면 여기만 고친다) ----
 KAKAO_EXE = "kakaotalk.exe"
-MAIN_TITLES = ("카카오톡", "KakaoTalk")  # 26.9.2부터 메인 창 제목이 영어 "KakaoTalk" (2026-11-13)
+MAIN_TITLES = ("카카오톡", "KakaoTalk")
 MAIN_CLASS = "EVA_Window_Dblclk"
 CHAT_WINDOW_CLASSES = ("EVA_Window_Dblclk", "#32770")
 INPUT_CLASSES = ("RICHEDIT50W", "RichEdit20W")
 SEARCH_EDIT_CLASS = "Edit"
-# 메인 창 → EVA_ChildWindow → EVA_Window(친구 탭), EVA_Window(채팅 탭) → Edit(검색칸)
 SEARCH_CHAIN = ("EVA_ChildWindow", "EVA_Window", "EVA_Window", SEARCH_EDIT_CLASS)
 
 _good_edit_index: int | None = None
@@ -59,7 +57,6 @@ WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 VK_RETURN = 0x0D
 SMTO_ABORTIFHUNG = 0x0002
-# lParam: 반복 1, 스캔코드 0x1C(Enter). KEYUP은 이전 상태·전환 비트(30, 31) 켬
 ENTER_DOWN_LPARAM = 0x001C0001
 ENTER_UP_LPARAM = 0xC01C0001
 MSG_TIMEOUT_MS = 2000
@@ -113,7 +110,6 @@ class KakaoWindowError(RuntimeError):
     pass
 
 
-# ---------------------------------------------------------------- 저수준 창 도구
 def _ms(t0: float) -> float:
     return round((time.perf_counter() - t0) * 1000, 2)
 
@@ -142,7 +138,7 @@ def process_exe(pid: int) -> str:
     if pid in _exe_cache:
         return _exe_cache[pid]
     name = ""
-    h = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    h = kernel32.OpenProcess(0x1000, False, pid)
     if h:
         try:
             buf = ctypes.create_unicode_buffer(1024)
@@ -206,10 +202,6 @@ def set_text(hwnd: int, text: str) -> bool:
     return bool(_smto(hwnd, WM_SETTEXT, 0, ctypes.addressof(buf)))
 
 
-# 2026-11-12 실측: 지금 카톡은 입력칸에 넣은 Enter 메시지(PostMessage/SendMessage/WM_CHAR 모두)를 전송으로 안 받는다
-# (RichEdit이 줄바꿈만 하거나 무시). 창 오른쪽 아래 'Send/전송' 버튼은 부모 창이 직접 그리므로 그 자리에
-# 마우스 메시지를 PostMessage 하면 전송된다(실제 마우스·포커스는 안 움직임). 위치: 클라이언트 오른쪽 아래에서
-# 논리 (36, 23)px — 200% DPI에서 물리 (72, 46) 실측. 비어 있을 때 입력칸은 안내문(placeholder)을 글로 돌려준다.
 SEND_BTN_FROM_RIGHT = 36
 SEND_BTN_FROM_BOTTOM = 23
 PLACEHOLDERS = ("Enter a message", "메시지 입력", "메시지를 입력하세요")
@@ -223,12 +215,10 @@ def is_empty_input(text: str) -> bool:
 
 def click_send(chat_hwnd: int) -> tuple[int, int]:
     """채팅창의 전송 버튼 자리에 클릭 메시지를 넣는다. 돌려주는 값: 클라이언트 물리 좌표."""
-    if user32.IsIconic(chat_hwnd):   # 최소화 창은 클라이언트가 0×0 → 포커스 안 뺏고 복원(SW_SHOWNOACTIVATE)
+    if user32.IsIconic(chat_hwnd):
         user32.ShowWindow(chat_hwnd, 4)
         time.sleep(0.25)
     rc = W.RECT()
-    # PER_MONITOR_AWARE_V2를 클릭 메시지를 넣는 동안에도 유지한다(11-13 실측: 좌표 계산만 물리로 하고 DPI 비인식 상태로
-    # PostMessage 하면 Windows가 마우스 좌표를 배율만큼 키워 창 밖을 눌렀다 — 전송 안 됨).
     old = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
     try:
         user32.GetClientRect(chat_hwnd, ctypes.byref(rc))
@@ -252,7 +242,7 @@ EM_SETSEL, EM_REPLACESEL = 0x00B1, 0x00C2
 def type_text(hwnd: int, text: str) -> None:
     """입력칸 전체를 text로 바꾼다 — 타이핑·붙여넣기처럼(EM_REPLACESEL). WM_SETTEXT로 넣으면 글은 보여도
     카톡이 입력으로 안 쳐서 전송 버튼이 회색(꺼짐)으로 남는다(11-13 실측). 이 방법이면 버튼이 노랗게 켜진다."""
-    _smto(hwnd, EM_SETSEL, 0, 0xFFFFFFFF)   # 전체 선택(-1)
+    _smto(hwnd, EM_SETSEL, 0, 0xFFFFFFFF)
     buf = ctypes.create_unicode_buffer(text)
     _smto(hwnd, EM_REPLACESEL, 1, ctypes.addressof(buf))
 
@@ -284,7 +274,6 @@ def _wait(pred, timeout: float, interval: float = 0.005):
         time.sleep(interval)
 
 
-# ---------------------------------------------------------------- 창 찾기
 def input_controls(chat_hwnd: int) -> list[int]:
     return [h for h in descendants(chat_hwnd)
             if class_name(h) in INPUT_CLASSES and user32.IsWindowVisible(h)]
@@ -358,7 +347,6 @@ def _tuck_away(chat_hwnd: int, fg_before, main_hwnd, settle: float = 0.6) -> Non
         time.sleep(0.01)
 
 
-# ---------------------------------------------------------------- 방 열기
 def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float = 3.0,
               search_settle: float = 0.4) -> dict:
     """메인 창 채팅 탭 검색칸에 방 이름을 넣고 Enter → 첫 검색 결과 방이 열린다.
@@ -382,8 +370,6 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
     if not main:
         r["error"] = "카카오톡 메인 창 없음(실행·로그인 안 됨?)"
         return r
-    # 26.9.2: 검색칸은 상시 컨트롤이 아니고(숨김/0크기) 메인 창 Edit 여럿 중 하나다. 어느 것인지 체인으로 못 집으니
-    #         Edit 전부에 '방 이름 넣고 Enter'를 차례로 넣어 방이 열리는 것을 찾는다(2026-11-13, 숨김 Edit도 메시지는 받는다).
     edits = [h for h in descendants(main) if class_name(h) == SEARCH_EDIT_CLASS]
     r["timings_ms"]["find_search"] = _ms(t)
     r.update(main_hwnd=main, main_visible=bool(user32.IsWindowVisible(main)), edit_count=len(edits))
@@ -395,9 +381,6 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
         r["ok"] = True
         r["dry_run"] = True
         return r
-    # 실측(나와의 채팅): 메인 창이 숨김·최소화인 채로도 검색칸에 이름+Enter를 넣으면 방이 열린다. 그래서 먼저 메인 창을
-    #  건드리지 않고 해 보고(1차), 안 열릴 때만 활성화 없이 꺼내서 다시 한다(2차: 최소화면 SW_SHOWNOACTIVATE 4,
-    #  숨김이면 SW_SHOWNA 8). 전에는 늘 SW_RESTORE·SW_SHOW로 꺼내서 카톡이 앞으로 나왔다. 좌표·마우스는 쓰지 않는다.
     before = {w["hwnd"] for w in list_chat_windows(pids)}
     fg_before = user32.GetForegroundWindow()
     t = time.perf_counter()
@@ -409,7 +392,7 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
             elif not user32.IsWindowVisible(main):
                 user32.ShowWindow(main, 8); r["main_restored"] = "hidden"; time.sleep(0.4)
             else:
-                break   # 메인 창이 이미 보이는 상태였다 → 다시 해도 같다
+                break
         order = list(enumerate(edits))
         if _good_edit_index is not None and _good_edit_index < len(order):
             order.insert(0, order.pop(_good_edit_index))
@@ -447,13 +430,12 @@ def open_chat(room_name: str, execute: bool = False, pids=None, timeout: float =
         r["minimized_after_open"] = bool(user32.IsIconic(hwnd))
     else:
         r["error"] = "방이 안 열림(어느 Edit로도)" if not new else f"다른 방이 열림: {[w['title'] for w in new]} (닫음)"
-        for w in new:  # 비슷한 이름이 잘못 열렸으면 닫는다
+        for w in new:
             user32.PostMessageW(w["hwnd"], WM_CLOSE, 0, 0)
     r["timings_ms"]["total"] = _ms(t_all)
     return r
 
 
-# ---------------------------------------------------------------- 보내기
 def deliver(input_hwnd: int, text: str, confirm_timeout: float = 1.0, timings: dict | None = None) -> dict:
     """입력칸 hwnd에 text를 넣고 Enter. send(send=True)의 마지막 단계(창 찾기·초안 검사 없음).
 
@@ -463,7 +445,7 @@ def deliver(input_hwnd: int, text: str, confirm_timeout: float = 1.0, timings: d
     body = normalize_text(text)
     t = time.perf_counter()
     try:
-        type_text(input_hwnd, body)   # WM_SETTEXT 말고 — 그래야 전송 버튼이 켜진다
+        type_text(input_hwnd, body)
     except KakaoWindowError as e:
         return {"ok": False, "error": f"입력 실패: {e}", "timings_ms": tm}
     tm["set_text"] = _ms(t)
@@ -474,9 +456,6 @@ def deliver(input_hwnd: int, text: str, confirm_timeout: float = 1.0, timings: d
         set_text(input_hwnd, "")
         return {"ok": False, "error": f"넣은 글이 다르게 읽힘: {got!r}", "timings_ms": tm}
     t = time.perf_counter()
-    # 실측(나와의 채팅): EM_REPLACESEL로 넣은 글은 입력칸에 Enter만 보내도 전송된다 — 창이 최소화된 채로 0.1초 안팎,
-    # 창을 띄우지 않고 포커스도 안 바뀐다. 버튼 클릭은 최소화 창을 복원해야 해서 카톡이 앞으로 나왔다.
-    # 그래서 Enter를 먼저 쓰고, 0.6초 안에 입력칸이 안 비면(글이 그대로일 때만) 버튼 클릭으로 넘어간다.
     try:
         press_enter(input_hwnd)
         if _wait(lambda: is_empty_input(get_text(input_hwnd)), min(confirm_timeout, 0.6)):
@@ -487,27 +466,24 @@ def deliver(input_hwnd: int, text: str, confirm_timeout: float = 1.0, timings: d
         pass
     after = get_text(input_hwnd)
     if not _same(after, body):
-        if is_empty_input(after):   # 기다린 직후에 비워짐 = 늦게 전송됨
+        if is_empty_input(after):
             tm["send_enter"] = _ms(t)
             tm["clicks"] = 0
             return {"ok": True, "confirmed": True, "timings_ms": tm}
         if not _same(after.rstrip("\r\n"), body.rstrip("\r\n")):
             tm["send_enter"] = _ms(t)
-            return {"ok": True, "confirmed": False, "timings_ms": tm}   # 글이 바뀜(사람이 입력 중 등) → 더 누르지 않음
-        # Enter가 전송이 아니라 줄바꿈으로 들어갔다(글 끝에 빈 줄만 붙음): 보낸 것이 아니므로 글을 되돌리고 버튼으로 보낸다.
-        # 예전에는 이 경우도 '글이 바뀜'으로 보고 성공을 돌려줘서, 보내지 않은 글이 입력칸에 남았다.
+            return {"ok": True, "confirmed": False, "timings_ms": tm}
         try:
             type_text(input_hwnd, body)
         except KakaoWindowError as e:
             return {"ok": False, "error": f"입력 되돌리기 실패: {e}", "timings_ms": tm}
         tm["enter_newline"] = True
     tm["enter_failed"] = _ms(t)
-    time.sleep(0.3)   # 글을 넣은 뒤 전송 버튼이 켜질 틈
+    time.sleep(0.3)
     chat_hwnd = user32.GetAncestor(input_hwnd, GA_ROOT) or input_hwnd
     click_send(chat_hwnd)
     tm["send_click"] = _ms(t)
     t = time.perf_counter()
-    # 확인: 넣은 글이 입력칸에서 사라짐(빈칸 또는 안내문). 진짜 전달 확인은 호출자가 카톡 DB로(tools/kakao_send.py).
     confirmed = bool(_wait(lambda: is_empty_input(get_text(input_hwnd)), confirm_timeout))
     tm["confirm_cleared"] = _ms(t)
     return {"ok": True, "confirmed": confirmed, "timings_ms": tm}
@@ -571,7 +547,7 @@ def send(room_name: str, text: str, send: bool = False, *, pids=None, thread_id=
         draft = get_text(inp)
         tm["read_draft"] = _ms(t)
         if is_empty_input(draft):
-            draft = ""   # 안내문(placeholder)은 초안이 아니다
+            draft = ""
         r["draft_present"] = bool(draft)
         if draft and not overwrite_draft:
             r["error"] = "입력칸에 쓰던 글이 있음(overwrite_draft=False) - 덮어쓰지 않음"
@@ -620,7 +596,6 @@ def send(room_name: str, text: str, send: bool = False, *, pids=None, thread_id=
         return r
 
 
-# ---------------------------------------------------------------- 진단(읽기 전용)
 def probe(pids=None, depth: int = 4) -> dict:
     """카카오톡 창·자식 컨트롤 클래스 목록(읽기 전용, 아무것도 안 넣음)."""
 

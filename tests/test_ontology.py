@@ -34,14 +34,12 @@ tmp = Path(tempfile.mkdtemp(prefix="ont_test_"))
 st = Store(tmp)
 check("스키마 로드 정상", st.ok)
 
-# ── 저장 금지 ──
 for bad in ["010-1234-5678", "110-123-456789", "홍길동_12345678", "a.b@example.ac.kr", "서울시 가상구 예시로 12",
             "101동 1203호", "1234567890123입니다"]:
     check(f"[금지] '{bad}' 값 거부", rejects(lambda b=bad: st.add_fact("me", "phrase", b, {"type": "owner"})))
 for good in ["2026-11-07", "11월 7일 2시", "3만원", "CLUB 부원"]:
     check(f"[금지] '{good}'은 통과", not st.never_hit(good))
 
-# ── predicate·출처 규칙 ──
 st.ensure_contact("111", "이도윤", "학교")
 st.ensure_contact("222", "박민수", "친구")
 check("[규칙] 상대에게 school predicate 거부",
@@ -65,7 +63,6 @@ check("[잠금] 잠금 주제는 공개로 못 바꿈", rejects(lambda: st.set_a
 fc = st.add_fact("g:x", "status", "진행 중", {"type": "chat_other", "ref": "chat:222#7"}) if st.add_group("g:x", "project", "팀플") else None
 check("[규칙] chat_other 출처 Group 사실은 그 방에만", fc["audience"] == "contact:222")
 
-# ── 충돌 ──
 a = st.add_fact("me", "school", "한빛대학교", {"type": "browser_summary", "ref": "b"})
 b = st.add_fact("me", "school", "누리대학교", {"type": "memory", "ref": "m"})
 check("[충돌] 다른 학교 값 → 둘 다 conflict·주인만",
@@ -76,7 +73,6 @@ st.resolve_conflict(a["id"])
 check("[충돌] 주인 채택 → 하나 active, 나머지 retracted",
       st.data["facts"][a["id"]]["status"] == "active" and st.data["facts"][b["id"]]["status"] == "retracted")
 
-# ── 가시성 ──
 st.add_group("g:club", "org", "CLUB(동아리)")
 st.add_member("g:club", "111")
 st.add_fact("g:club", "my_role", "부원", {"type": "owner"}, audience="group")
@@ -95,7 +91,6 @@ st.ensure_contact("444", "외부", "업무·외부")
 check("[가시성] 친구는 내 수업을 보고 업무·외부는 못 봄", any(x["id"] == fc2["id"] for x in st.visible_facts("222", "친구")) and not any(x["id"] == fc2["id"] for x in st.visible_facts("444", "업무·외부")))
 check("[가시성] 그룹 객체 사실은 여전히 그 그룹 상대에게만", not any(x["subject"] == "g:club" for x in st.visible_facts("333", "교수")))
 
-# ── 잊기·재시작 ──
 n = st.forget_contact("111")
 check("[잊기] 상대 사실 삭제, 레코드는 forgotten", n >= 1 and st.data["contacts"]["111"]["status"] == "forgotten")
 st.ensure_contact("111", "이도윤", "학교")
@@ -105,7 +100,6 @@ check("[저장] 다시 읽어도 같은 내용", st2.ok and len(st2.data["facts"
 check("[저장] journal·audit 기록", (tmp / "journal.jsonl").exists() and (tmp / "audit.jsonl").exists())
 check("[저장] validate_all 문제 없음", st2.validate_all() == [])
 
-# ── 안전 쪽 실패 ──
 bad_schema = tmp / "bad_schema.json"
 d = json.loads((ROOT / "ontology" / "schema.json").read_text(encoding="utf-8"))
 d["topic_lexicon"] = [w for w in d["topic_lexicon"] if w != "입시"]
@@ -114,7 +108,6 @@ st3 = Store(tmp / "d3", bad_schema)
 check("[실패] 잠금 주제가 빠진 스키마 → 카드 없음 모드(읽기 비움·쓰기 거부)",
       not st3.ok and st3.visible_facts("1") == [] and rejects(lambda: st3.add_fact("me", "phrase", "x", {"type": "owner"})))
 
-# ── 발신 경로 없음(import 그래프) ──
 tree = ast.parse((ROOT / "ontology_store.py").read_text(encoding="utf-8"))
 mods = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | \
        {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}

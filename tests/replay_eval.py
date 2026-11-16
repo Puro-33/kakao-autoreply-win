@@ -15,7 +15,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 import bot  # noqa: E402
 import ontology_card as OC  # noqa: E402
 
-for h in list(logging.getLogger().handlers):          # bot.log에 섞지 않는다
+for h in list(logging.getLogger().handlers):
     if isinstance(h, logging.FileHandler):
         logging.getLogger().removeHandler(h)
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """카톡 봇을 돌린다: iris_native 셔임(PC DB 수신·PC 창 전송) + bot.py.
 
     py -3.12 start_native.py            (또는  py -3.12 kakaowin.py bot)

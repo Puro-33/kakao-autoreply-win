@@ -30,7 +30,7 @@ bot.S.bot_id = str(_orig_iris("/config").get("bot_id"))
 
 chat_id = sys.argv[1]
 picks = sys.argv[2:]
-bot.CFG["open_chat_proxy_rooms"] = [chat_id]   # OWNER 대신 답하는 방식으로 시험
+bot.CFG["open_chat_proxy_rooms"] = [chat_id]
 all_lines = bot.fetch_messages(chat_id, 200)
 room = bot.room_label(chat_id)
 cases = []

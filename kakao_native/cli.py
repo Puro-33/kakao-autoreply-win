@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 이 PC·본인 계정 전용: 실행 중인 KakaoTalk.exe 에서 키를 복원해
 로컬 chatLogs_*.edb 를 직접 읽는 end-to-end 확인 도구.
@@ -32,7 +31,6 @@ def find_chat_dbs(user_root: str = DEFAULT_USER_ROOT) -> list[str]:
     """본인 계정 폴더의 chatLogs_*.edb 전부(수정시각 최신순)."""
     pat = os.path.join(user_root, "*", "chat_data", "chatLogs_*.edb")
     files = glob.glob(pat)
-    # chat_data 하위가 아닌 위치도 포괄
     pat2 = os.path.join(user_root, "*", "chatLogs_*.edb")
     files += [f for f in glob.glob(pat2) if f not in files]
     files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
@@ -56,7 +54,7 @@ def _first_page(path: str, size: int = 4096) -> bytes:
 
 
 def main(argv=None) -> int:
-    try:  # 콘솔(cp949)이 대시·이모지 등을 못 찍어 죽지 않게
+    try:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
@@ -106,7 +104,6 @@ def main(argv=None) -> int:
         if args.page_size and selected is None:
             ap.error("--page-size requires an explicit --format for key verification")
         try:
-            # Refuse getpass's echoed-stdin fallback. No key in argv or saved file.
             import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("error", getpass.GetPassWarning)
@@ -123,7 +120,6 @@ def main(argv=None) -> int:
             return 6
     if args.db:
         ap.error("--db requires --verify-key")
-    # Scan both presets at this page size, trying the selected format first.
     try:
         selected = selected or replace(SQLCIPHER4_DEFAULTS, page_size=args.page_size or 4096)
     except ValueError as exc:
@@ -141,7 +137,6 @@ def main(argv=None) -> int:
             print(f"  {os.path.getsize(p):>10,}B  {os.path.basename(p)}")
         return 0
 
-    # Lazy import: analysis and supplied-key paths never import or execute memkey.
     from .memkey import find_kakaotalk_pids, recover_key_for_db
     pids = find_kakaotalk_pids()
     if not pids:
@@ -149,10 +144,10 @@ def main(argv=None) -> int:
         return 3
     print(f"KakaoTalk.exe PID: {pids}")
 
-    if args.v2:  # v2 키 저장소로 전체 방 키를 한 번에(메모리는 루트 키 1회만)
+    if args.v2:
         import time as _t
         try:
-            from . import keystore_v2 as kv   # 선택 모듈: 저장소에 들어 있지 않다(README '라이선스·크레딧')
+            from . import keystore_v2 as kv
         except ImportError:
             print("--v2 는 선택 모듈 kakao_native/keystore_v2.py 가 있어야 합니다. 없으면 --v2 없이 쓰세요."); return 2
         from .memkey import find_v2_root_key
@@ -208,7 +203,7 @@ def main(argv=None) -> int:
         print(f"\n읽기 성공 {ok}개. v2 일괄 키 복구 성공.")
         return 0
 
-    if args.schema_db:  # 특정 DB의 스키마만(방목록·사용자 DB 매핑용). 본문·행 값은 안 읽는다.
+    if args.schema_db:
         path = args.schema_db
         if not os.path.isfile(path):
             print(f"파일이 없습니다: {path}"); return 2
@@ -224,7 +219,6 @@ def main(argv=None) -> int:
             print(f"  {tname}: {cols}")
         return 0
 
-    # 최근 수정된 방부터: 그 방 화면이 열려 있었을 가능성이 커 키가 메모리에 있음.
     for path in dbs[: args.max_dbs]:
         fp = _first_page(path, selected.page_size)
         rec = recover_key_for_db(fp, path, pids=pids,
@@ -238,12 +232,12 @@ def main(argv=None) -> int:
               f"(key sha256 앞 8자리: {__import__('hashlib').sha256(rec.enc_key).hexdigest()[:8]})")
         info = read_recent(path, rec.enc_key, params=rec.params, limit=args.limit)
         print(f"  테이블: {info['tables']}")
-        if info.get("chat_table") is None:  # 대화 테이블을 못 고르면 칼럼 이름을 보여 매핑을 맞춘다(본문 아님)
+        if info.get("chat_table") is None:
             for tname in ("chatLogs", "chat_logs"):
                 if tname in info.get("schema", {}):
                     print(f"  {tname} 칼럼: {info['schema'][tname]}")
         print(f"  대화 테이블: {info['chat_table']} / 정렬: {info['order_col']}")
-        if args.show_text:  # 본인 로컬 화면 전용: 메시지 본문을 그대로 보여 준다(평문/2차암호 눈으로 판별)
+        if args.show_text:
             import datetime as _dt
             print(f"  최근 {len(info['recent'])}행(본문 그대로 — 본인 확인용):")
             for r in info["recent"]:

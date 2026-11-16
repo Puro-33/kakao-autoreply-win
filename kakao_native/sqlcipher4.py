@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Raw-key page codecs. Windows KakaoTalk's actual format is NOT established.
 
 SQLCipher4: [salt16 on page1][CBC ciphertext][IV16][HMAC-SHA512 64].
@@ -21,9 +20,8 @@ PAGE_SIZES = (512, 1024, 2048, 4096, 8192, 16384, 32768, 65536)
 
 @dataclass(frozen=True)
 class SqlCipher4Params:
-    # Original name and positional fields retained for existing callers.
     page_size: int = 4096
-    kdf_iter: int = 256000  # documentation only: input is already a raw AES key
+    kdf_iter: int = 256000
     fast_kdf_iter: int = 2
     hmac_salt_mask: int = 0x3A
     iv_size: int = 16
@@ -77,7 +75,6 @@ class SqlCipher4Params:
         return 16 if self.use_salt else 0
 
 
-# Clearer alias, without breaking memkey.py's imports.
 CipherParams = SqlCipher4Params
 SQLCIPHER4_DEFAULTS = CipherParams()
 DEVICE_AES128_DEFAULTS = CipherParams(
@@ -180,7 +177,6 @@ def _decrypt_page(page: bytes, page_no: int, enc_key: bytes, hmac_key: bytes,
             raise ValueError(f"page {page_no}: HMAC mismatch (wrong key or corrupt)")
     dec = Cipher(algorithms.AES(enc_key), modes.CBC(iv)).decryptor()
     plain = dec.update(ciphertext) + dec.finalize()
-    # No-salt mode MUST decrypt the real magic; never synthesize it there.
     if body_off:
         plain = SQLITE_MAGIC + plain
     return plain + b"\x00" * params.reserve
@@ -321,7 +317,6 @@ def apply_wal(plain_db: bytes, encrypted_db: bytes, wal: bytes, enc_key: bytes,
     return bytes(out), applied
 
 
-# Alternate names found in concurrent callers are retained as aliases.
 SqlCipherParams = CipherParams
 DEVICE_KEY_AES128 = DEVICE_AES128_DEFAULTS
 SQLITE_HEADER = SQLITE_MAGIC

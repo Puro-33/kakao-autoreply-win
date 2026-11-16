@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Windows DPAPI 로 작은 비밀(복구한 DB 키 캐시)을 '이 PC·이 Windows 로그인 계정'에 묶어 암·복호화한다.
 
 다른 PC나 다른 Windows 계정에서는 풀 수 없다. 표준 라이브러리(ctypes)만 쓴다. Windows 전용.

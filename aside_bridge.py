@@ -26,18 +26,18 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-MIN_GAP_SEC = 10.0          # 페이지 요청 사이 최소 간격(이 프로세스 안 전역)
-REPL_TIMEOUT = 150.0        # aside repl 자체 제한은 120초, 여유를 둔 바깥 제한
-MARK = "@@ASIDE_BRIDGE@@"   # repl 출력에서 결과 JSON 줄을 찾는 표식
+MIN_GAP_SEC = 10.0
+REPL_TIMEOUT = 150.0
+MARK = "@@ASIDE_BRIDGE@@"
 RC_TIMEOUT, RC_NOEXEC = 124, 127
 
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _BANNER = re.compile(r"^\s*Aside CLI \S+ is available|Run: aside update")
-_STATUS = re.compile(r"^\[(ok|error)\s*\|\s*[\d.]+\s*m?s\]\s*$", re.M)   # repl이 끝에 찍는 '[ok | 20ms]'
+_STATUS = re.compile(r"^\[(ok|error)\s*\|\s*[\d.]+\s*m?s\]\s*$", re.M)
 _LOGIN_PATH = re.compile(r"log-?in|sign-?in", re.I)
 _LOGIN_WORD = re.compile(r"로그인|log ?in|sign ?in", re.I)
 
-_last_at: float | None = None   # 마지막 요청이 끝난 시각(_now 기준)
+_last_at: float | None = None
 _now = time.monotonic
 _sleep = time.sleep
 
@@ -56,7 +56,6 @@ class PageResult(tuple):
     final_url = property(lambda self: self[2])
 
 
-# ── 실행 ────────────────────────────────────────────────────────────────────
 def find_exe() -> str | None:
     """aside 실행 파일(PATH 우선, 없으면 %LOCALAPPDATA%\\Aside\\CLI\\current\\aside.exe). 없으면 None.
     Windows에선 .exe 만 받는다: PATH에 aside.cmd/.bat 래퍼가 먼저 있으면 cmd.exe 를 거쳐 JS 인자 속 |·&·> 가
@@ -86,7 +85,7 @@ def _subprocess_runner(argv: list[str], timeout: float) -> tuple[int, str]:
     return p.returncode, out + ("\n" + err if err.strip() else "")
 
 
-RUNNER = _subprocess_runner   # 바꿔 끼우기: runner(argv: list[str], timeout: float) -> (종료 코드, 출력)
+RUNNER = _subprocess_runner
 
 
 def clean_output(text: str) -> str:
@@ -123,7 +122,6 @@ def aside_available(runner=None) -> bool:
     return "signed in" in low
 
 
-# ── 간격 ────────────────────────────────────────────────────────────────────
 def _wait_gap() -> None:
     """앞 요청이 끝난 뒤 MIN_GAP_SEC가 안 지났으면 남은 만큼 기다린다."""
     if _last_at is not None:
@@ -151,8 +149,7 @@ def _split(url: str):
         return None
 
 
-# ── robots.txt ───────────────────────────────────────────────────────────────
-_ROBOTS: dict[str, list[tuple[bool, str]] | None] = {}   # 'https://host' → [(허용?, 패턴)], None = 못 읽음(모두 막힘으로 봄)
+_ROBOTS: dict[str, list[tuple[bool, str]] | None] = {}
 
 
 def _urllib_fetch(url: str, timeout: float) -> tuple[int, str]:
@@ -163,11 +160,11 @@ def _urllib_fetch(url: str, timeout: float) -> tuple[int, str]:
             return r.status, r.read(200_000).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, ""
-    except Exception:  # noqa: BLE001  (DNS·TLS·시간 초과 등)
+    except Exception:  # noqa: BLE001
         return 0, ""
 
 
-ROBOTS_FETCH = _urllib_fetch   # 바꿔 끼우기: fetch(url, timeout) -> (HTTP 상태, 본문)
+ROBOTS_FETCH = _urllib_fetch
 
 
 def parse_robots(text: str) -> list[tuple[bool, str]]:
@@ -183,7 +180,7 @@ def parse_robots(text: str) -> list[tuple[bool, str]]:
         k, v = (x.strip() for x in line.split(":", 1))
         k = k.lower()
         if k == "user-agent":
-            if in_rules:   # 규칙 뒤에 다시 나온 user-agent 는 새 묶음
+            if in_rules:
                 groups.append((uas, rules))
                 uas, rules, in_rules = [], [], False
             uas.append(v.lower())
@@ -197,7 +194,7 @@ def parse_robots(text: str) -> list[tuple[bool, str]]:
 
 def _rule_match(pattern: str, path: str) -> bool:
     if not pattern:
-        return False          # 빈 Disallow = 막는 것 없음
+        return False
     end = pattern.endswith("$")
     body = pattern[:-1] if end else pattern
     rx = "".join(".*" if ch == "*" else re.escape(ch) for ch in body) + ("$" if end else "")
@@ -240,7 +237,6 @@ def robots_allows(url: str) -> bool:
     return robots_verdict(rules, (sp.path or "/") + (f"?{sp.query}" if sp.query else ""))
 
 
-# ── 페이지 읽기 ──────────────────────────────────────────────────────────────
 _PAGE_JS = """await (async () => {
   const o = {};
   let t = null;
@@ -279,7 +275,7 @@ def build_page_js(url: str, wait_sec: float, limit: int) -> str:
     return (_PAGE_JS.replace("__WAIT__", str(max(0, int(wait_sec * 1000))))
             .replace("__LIM__", str(max(1000, int(limit) * 3)))
             .replace("__MARK__", json.dumps(MARK))
-            .replace("__URL__", json.dumps(url)))   # 주소는 마지막에(주소 안 글자가 다른 자리표시로 바뀌지 않게)
+            .replace("__URL__", json.dumps(url)))
 
 
 def _parse(out: str) -> dict | None:

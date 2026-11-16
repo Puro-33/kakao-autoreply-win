@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 실행 중인 '본인' KakaoTalk.exe 프로세스 메모리에서 DB raw 키를 복원한다.
 표준 라이브러리(ctypes)만 쓴다 — 추가 설치 불필요.
@@ -30,15 +29,13 @@ from .sqlcipher4 import (
     verify_raw_key, FORMAT_PRESETS, SQLCIPHER4_DEFAULTS, SqlCipher4Params,
 )
 
-# ---- Win32 상수 ---------------------------------------------------------
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
 MEM_COMMIT = 0x1000
 MEM_PRIVATE = 0x20000
 PAGE_GUARD = 0x100
 PAGE_NOACCESS = 0x01
-# 읽기 가능한 보호 플래그(하위 8비트 기준)
-_READABLE = {0x02, 0x04, 0x08, 0x20, 0x40, 0x80}  # RO, RW, WC, EXEC_R, EXEC_RW, EXEC_WC
+_READABLE = {0x02, 0x04, 0x08, 0x20, 0x40, 0x80}
 TH32CS_SNAPPROCESS = 0x00000002
 
 _HEX64 = re.compile(rb"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])")
@@ -51,7 +48,7 @@ class MEMORY_BASIC_INFORMATION(ctypes.Structure):
         ("BaseAddress", ctypes.c_void_p),
         ("AllocationBase", ctypes.c_void_p),
         ("AllocationProtect", wintypes.DWORD),
-        ("__align", wintypes.DWORD),  # 64비트 패딩
+        ("__align", wintypes.DWORD),
         ("RegionSize", ctypes.c_size_t),
         ("State", wintypes.DWORD),
         ("Protect", wintypes.DWORD),
@@ -76,9 +73,9 @@ class PROCESSENTRY32(ctypes.Structure):
 
 @dataclass
 class RecoveredKey:
-    enc_key: bytes = field(repr=False)  # 검증된 16/32바이트 raw 키
+    enc_key: bytes = field(repr=False)
     source_pid: int
-    db_path: str                   # 이 키로 검증된 본인 DB
+    db_path: str
     as_hex: str = field(default="", repr=False)
     params: SqlCipher4Params = SQLCIPHER4_DEFAULTS
     format_name: str = field(init=False)
@@ -183,7 +180,6 @@ def find_v2_root_key(ks, pids: list[int] | None = None):
     from .keystore_v2 import try_root_key
     if pids is None:
         pids = find_kakaotalk_pids()
-    # 키는 힙에 정렬 저장되므로 8바이트 간격으로 먼저 훑고(수십 배 빠름), 못 찾으면 1바이트로 샅샅이 재시도.
     for step in (8, 1):
         seen: set[bytes] = set()
         for pid in pids:
@@ -231,7 +227,6 @@ def recover_key_for_db(db_first_page: bytes, db_path: str,
             continue
         try:
             regions = list(_iter_regions(h))
-            # --- 1차: hex 키스펙 문자열 ---
             for base, size in regions:
                 blob = _read_region(h, base, size)
                 if not blob:
@@ -243,12 +238,10 @@ def recover_key_for_db(db_first_page: bytes, db_path: str,
                     matched = _matching_format(db_first_page, key, params)
                     if matched is not None:
                         return RecoveredKey(key, pid, db_path, params=matched)
-            # --- 2차: raw 윈도(옵션). 후보 포맷의 키 길이만, 키처럼 생긴 윈도만 검증한다(속도). ---
             if deep_scan:
                 sizes = tuple(sorted({c.key_size for c in _candidate_formats(params)}, reverse=True))
                 for base, size in regions:
                     blob = _read_region(h, base, size)
-                    # 20: 랜덤 32바이트 키의 서로 다른 바이트 수는 대개 28 안팎 → 키는 통과, 잡음 윈도는 AES 검증 전에 걸러짐
                     hit = _scan_raw_windows(blob, db_first_page, params, seen=seen, sizes=sizes, min_distinct=20)
                     if hit is not None:
                         key, matched = hit
@@ -293,7 +286,6 @@ def _raw_candidates(blob: bytes, seen: set[bytes] | None = None,
     if seen is None:
         seen = set()
     smallest = min(sizes)
-    # min_distinct==0 → 윈도 크기에 비례(키처럼 서로 다른 바이트가 많은 것만). 32→20, 16→10. 1 이상이면 그 값을 상한으로 그대로 쓴다.
     thr = {size: (size * 5 // 8 if min_distinct == 0 else min(min_distinct, size * 5 // 8)) for size in sizes}
     for i in range(0, max(0, len(blob) - smallest + 1), step):
         for size in sizes:

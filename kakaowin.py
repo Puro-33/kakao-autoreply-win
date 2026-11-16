@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """kakaowin — PC 카카오톡(Windows)용 명령줄 도구. 내 PC 카톡만 쓴다(에뮬레이터 불필요).
 
     py -3.12 kakaowin.py status                       # 준비 상태(카톡 실행·계정 폴더·키·설정)
@@ -67,7 +66,6 @@ def _account(args, scan: bool = True):
     return Account(keys_mode=args.keys, log=quiet, scan=scan)
 
 
-# ───────────────────────── 명령 ─────────────────────────
 def cmd_status(args) -> int:
     from kakao_native.account import find_account_dir, app_home
     info: dict = {"python": sys.version.split()[0], "platform": sys.platform}
@@ -171,7 +169,6 @@ def cmd_send(args) -> int:
         room = a.memo_room()
         if room is None:
             print("나와의 채팅 방을 찾지 못했습니다."); return 1
-        # 나와의 채팅 창 제목은 '나와의 채팅'이 아니라 내 프로필 이름이다
         title = a.names.get(a.my_id) or room["title"] or room["name"]
     else:
         if not args.room:
@@ -245,7 +242,7 @@ def main(argv=None) -> int:
         pass
     args = build_parser().parse_args(argv)
     if args.cmd == "send" and args.me and args.room and not args.text:
-        args.text, args.room = args.room, None   # send --me "글"
+        args.text, args.room = args.room, None
     try:
         return args.fn(args)
     except RuntimeError as e:
