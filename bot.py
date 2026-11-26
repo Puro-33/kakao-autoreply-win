@@ -3379,6 +3379,8 @@ def retry_dm_later(job: dict) -> None:
 
 def run_job(job: dict) -> None:
     chat_id = job["chat_id"]
+    if job["kind"] == "heart":
+        return do_heart(job)
     if job["kind"] != "briefing" and not job.get("called") and not job.get("diary") and not rate_ok():
         log.warning("시간당 응답 한도(%s) 초과, 건너뜀 [%s]", CFG["max_replies_per_hour"], job.get("room_name"))
         if job["kind"] in ("ai", "summary") and not job.get("owner") and (job.get("text") or job.get("photos")):
@@ -3890,6 +3892,68 @@ def called_owner(chat_id: str, typ: int, text: str, attachment, rt: str | None =
     if OWNER_CALL_START_RE.search(t) and not _CALL_THIRD_RE.search(t):
         return "이름"
     return ""
+
+
+HEART_BAD_DEFAULT = (r"[?？]|\d|혹시|시간|내일|오늘|모레|언제|어디|뭐|왜|어떻게|누구|얼마|몇|가능|부탁|보내|해주|해 주|주세요|주실|"
+                     r"알려|줄래|될까|할까|전화|송금|계좌|파일|사진|링크|첨부|만원|오전|오후|요일")
+HEART_CLOSERS_DEFAULT = [r"^(넵|네|넹|예|옙|ㅇㅋ|ㅇㅇ|오케이|ok|OK)[ ~!.ㅎㅋ]*$", r"감사|고맙|수고|고생",
+                         r"봬요|뵈요|뵙겠|뵐게|봐요|보자", r"(제출|확인|받|알겠|완료|전달|보냈)(했|하였|했습|했어|했네)|알겠"]
+
+
+def heart_judge(text: str) -> bool:
+    """마무리 인사·감사·확인뿐인 짧은 글이면 True(글 답장 대신 하트). 질문·요청·일정·돈·파일이 섞이면 False.
+    config heart_reaction: enabled, max_chars, closers(정규식 목록), blockers(정규식 하나)."""
+    hc = CFG.get("heart_reaction") or {}
+    t = re.sub(r"\s+", " ", text or "").strip()
+    if not hc.get("enabled") or not t or len(t) > int(hc.get("max_chars", 24)):
+        return False
+    if re.search(hc.get("blockers") or HEART_BAD_DEFAULT, t):
+        return False
+    return any(re.search(p, t) for p in (hc.get("closers") or HEART_CLOSERS_DEFAULT))
+
+
+def heart_wanted(chat_id: str, rt: str, typ: int, text: str, called: str, thread_id: int = 0) -> bool:
+    hc = CFG.get("heart_reaction") or {}
+    return bool(hc.get("enabled")) and typ in TEXT_TYPES and not called and not thread_id \
+        and rt in (hc.get("room_types") or ["DirectChat"]) and heart_judge(text)
+
+
+def do_heart(job: dict) -> None:
+    """마무리 톡에 글 대신 하트. 실패하면 아무것도 보내지 않고 로그만. 그 사이 OWNER이 답했거나 새 글이 왔으면 달지 않는다."""
+    chat_id = job["chat_id"]
+    if OWNER_SPOKE.get(chat_id, 0) > job.get("at", 0) or S.last_inbound_id.get(chat_id) != job.get("msg_id"):
+        log.info("하트 건너뜀(그 사이 새 글·OWNER 답) [%s]", job.get("room_name"))
+        return
+    if not send_allowed(chat_id):
+        log.warning("하트 차단(허용 안 된 방) room=%s", chat_id)
+        return
+    try:
+        resp = iris("/react", {"room": chat_id, "data": "heart", "targetId": job.get("msg_id"), "target": job.get("text")}, timeout=60)
+    except Exception as e:  # noqa: BLE001
+        log.error("하트 실패(셔임 호출) [%s]: %s", job.get("room_name"), e)
+        return
+    if resp.get("success"):
+        log.info("하트 %s [%s]", resp.get("skipped") or "달음", job.get("room_name"))
+        DAILY.add("hearts")
+    else:
+        log.error("하트 실패(아무것도 안 보냄) [%s]: %s", job.get("room_name"), resp.get("error"))
+
+
+OPINION_RE = re.compile(r"괜찮을까|괜찮나요|괜찮은가요|괜찮을지|어때요|어떤가요|어떨까요|어떠세요|어떠신가요|어떻게 생각|어떻게들|의견|"
+                        r"어느 (게|쪽|것)|(뭐|뭘|어떤 게|어떤 걸|어느 걸)[^?\n]{0,12}(나을|좋을|할)까|좋을까요|할까요|될까요|다들[^\n]{0,30}\?")
+
+
+def opinion_ask(chat_id: str, user_id: str, text: str) -> bool:
+    """단톡에 의견을 묻는 글인지(group_opinion). 특정인을 멘션한 글은 뺀다."""
+    g = CFG.get("group_opinion") or {}
+    if not g.get("enabled") or chat_id in [str(x) for x in g.get("exclude_rooms", [])]:
+        return False
+    t = (text or "").strip()
+    if len(t) < 6 or t.startswith("!") or re.search(r"@\S", t):
+        return False
+    if str(user_id) in [str(x) for x in g.get("always_users", [])]:
+        return bool(re.search(r"\?|까요|나요|가요|ㄴ가|을까|ㄹ까|어때|의견", t))
+    return bool(OPINION_RE.search(t))
 
 
 def called_rate_ok(chat_id: str, now: float | None = None) -> bool:
@@ -4485,6 +4549,8 @@ def handle_event(evt: dict) -> None:
     if not is_me and not auto and rt in ("MultiChat", "OM") and typ in TEXT_TYPES \
             and chat_id not in [str(x) for x in CFG.get("called_exclude_rooms", [])]:
         called = called_owner(chat_id, typ, text, j.get("attachment"), rt=rt)
+        if not called and rt == "MultiChat" and not evt.get("catchup") and opinion_ask(chat_id, user_id, text):
+            called = "의견"
         if called and evt.get("catchup"):
             age = time.time() - to_int(j.get("created_at"), 0)
             _cmax = float(CFG.get("called_catchup_max_age_sec", 0))
@@ -4509,7 +4575,13 @@ def handle_event(evt: dict) -> None:
         cat, pol = DM.policy(chat_id, dm_room_name(chat_id, sender, room_name, rt), rt)
         dm_extra = DM.rule(pol)
         dm_cat = cat
-        if called:
+        if called == "의견":
+            dm_extra = (dm_extra + "\n" if dm_extra else "") + \
+                "[단톡에 의견을 묻는 글] 방금 메시지는 방 사람들에게 의견·확인을 구하는 글일 수 있다. " \
+                "특정한 다른 사람에게 한 말이거나 이미 결론이 난 얘기면 needs_reply false. " \
+                "방 전체에 묻는 것이면 OWNER으로서 한두 문장으로 의견을 답한다. 사진·자료를 못 봤으면 본 척하지 않는다. " \
+                "OWNER이 정하지 않은 약속·일정·돈은 확답하지 않는다(답할 근거가 없으면 보류)."
+        elif called:
             dm_extra = (dm_extra + "\n" if dm_extra else "") + \
                 f"[OWNER을 부른 것일 수 있는 메시지: {called}] 방금 메시지는 OWNER을 부른 것일 수 있다. " \
                 "OWNER에 대한 3인칭 언급이면 needs_reply false(다른 사람·다른 OWNER에게 한 말이어도 false). " \
@@ -4576,6 +4648,10 @@ def handle_event(evt: dict) -> None:
         question, explicit = text, False
     else:
         return
+    if not explicit and not is_me and auto and heart_wanted(chat_id, rt, typ, text, called, to_int(j.get("thread_id"), 0)):
+        log.info("마무리 톡 → 하트(글 답장 없음) [%s]", room_name)
+        return enqueue({"kind": "heart", "chat_id": chat_id, "room_name": room_name, "text": text,
+                        "msg_id": log_id, "at": time.time()})
     if owner_here and wake_q is not None and not question.strip() and key not in S.photos:
         prev = memo_recent(chat_id)
         if prev:
@@ -4730,17 +4806,59 @@ def health_loop() -> None:
         time.sleep(CFG["health_check_sec"])
 
 
+def catchup_batch_since(rows: list[dict], mine, gap_sec: float) -> float:
+    """한 방의 보충 대상 글 중 '마지막 묶음'의 시작 시각(created_at). OWNER이 마지막으로 쓴 글 뒤의 남의 글만,
+    끝에서부터 간격 gap_sec 이하로 이어진 것까지. 남의 글이 없으면 inf."""
+    seen, mine_last, others = set(), float("-inf"), []
+    for x in rows:
+        rid = to_int(x.get("_id"), 0)
+        if rid in seen:
+            continue
+        seen.add(rid)
+        ts = float(to_int(x.get("created_at"), 0))
+        if mine(str(x.get("user_id") or "")):
+            mine_last = max(mine_last, ts)
+        else:
+            others.append(ts)
+    others = sorted(t for t in others if t > mine_last)
+    if not others:
+        return float("inf")
+    start = others[-1]
+    for t in reversed(others[:-1]):
+        if start - t > gap_sec:
+            break
+        start = t
+    return start
+
+
+def catchup_verdict(age: float, is_owner: bool, created_at: float, batch_since: float,
+                    owner_max_sec: float, hard_max_sec: float) -> str:
+    """보충할지 판정. 넘길 이유(빈 문자열이면 handle_event로 넘김)."""
+    if is_owner:
+        return "OWNER 글이 오래됨" if owner_max_sec and age > owner_max_sec else ""
+    if hard_max_sec and age > hard_max_sec:
+        return f"{hard_max_sec / 3600:.0f}시간 넘음"
+    if created_at < batch_since:
+        return "그 방 마지막 묶음 아님"
+    return ""
+
+
 def catchup_once(cursor: int) -> int:
     """웹훅이 빠뜨린 메시지 보충: DB에서 cursor 뒤의 새 메시지를 읽어, 아직 못 받은 것만 handle_event로 넘긴다.
     방금 온 것(웹훅이 곧 올 수 있음)은 다음 차례로 미룬다. 늦게 와도 답한다(사용자 지시 11/08: 늦은 답은 괜찮음).
     단, 그 뒤에 OWNER이 그 방에 직접 쓴 메시지가 있으면 이미 답한 것으로 보고 넘긴다.
-    catchup_max_age_min이 0보다 크면 그보다 오래된 것은 넘긴다(기본 0 = 제한 없음)."""
+    커서 뒤 글은 나이와 상관없이 대상이다. 방마다 마지막 묶음만(catchup_batch_gap_min), catchup_hard_max_age_h를 넘은 글은
+    로그만, OWNER 자신의 글은 catchup_owner_max_age_min 안의 것만 넘긴다."""
     if not S.bot_id:
         return cursor
     rows = db("SELECT _id, id, chat_id, user_id, type, message, attachment, v, created_at, thread_id FROM chat_logs "
               "WHERE _id > ? ORDER BY _id LIMIT 300", [cursor])
     now = time.time()
-    max_age = float(CFG.get("catchup_max_age_min", 0)) * 60
+    start_cursor = cursor
+    owner_max = float(CFG.get("catchup_owner_max_age_min", 60)) * 60
+    hard_max = float(CFG.get("catchup_hard_max_age_h", 72)) * 3600
+    gap = float(CFG.get("catchup_batch_gap_min", 30)) * 60
+    since: dict[str, float] = {}
     filled = []
     for r in rows:
         rid = to_int(r.get("_id"), 0)
@@ -4751,8 +4869,20 @@ def catchup_once(cursor: int) -> int:
         if str(rid) in S.seen_set:
             continue
         chat_id, user_id = str(r.get("chat_id") or ""), str(r.get("user_id") or "")
-        if max_age and age > max_age:
+
+        def mine(uid: str, _c: str = chat_id) -> bool:
+            return uid == S.bot_id or (_c, uid) in S.my_ids
+        if chat_id not in since and not mine(user_id):
+            tail = db("SELECT _id, chat_id, user_id, created_at FROM chat_logs WHERE _id > ? AND chat_id = ? "
+                      "ORDER BY _id DESC LIMIT 300", [start_cursor, chat_id])
+            tail = [x for x in tail + rows if str(x.get("chat_id") or "") == chat_id and to_int(x.get("_id"), 0) > start_cursor]
+            since[chat_id] = catchup_batch_since(tail, mine, gap)
+        why = catchup_verdict(age, mine(user_id), float(to_int(r.get("created_at"), 0)), since.get(chat_id, 0.0),
+                              owner_max, hard_max)
+        if why:
             S.is_dup(str(rid))
+            if not mine(user_id):
+                log.info("보충 안 함(%s): [%s] _id=%s (%.1f시간 전)", why, chat_id, rid, age / 3600)
             continue
         if user_id != S.bot_id and age > 60:
             later = db("SELECT _id, message FROM chat_logs WHERE chat_id = ? AND user_id = ? AND _id > ? LIMIT 20",
