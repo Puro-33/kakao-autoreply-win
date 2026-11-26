@@ -263,6 +263,48 @@ class NativeIris:
         except Exception as e:  # noqa: BLE001
             return {"success": False, "native_pc": True, "error": f"pc_send: {type(e).__name__}"}
 
+    def react(self, body: dict, reactor=None) -> dict:
+        """남의 글 1건에 하트를 단다. 대상 글을 DB에서 다시 읽어 확인한 뒤 창 메시지로만 단다. reactor(title, text, room_type, guard) 는 테스트용 주입점."""
+        room_id = str(body.get("room") or "")
+        tid = str(body.get("targetId") or "")
+        row = self.query("SELECT id, type, meta FROM chat_rooms WHERE id = ?", [room_id])
+        rtype = row[0]["type"] if row else None
+        cfg = load_cfg()
+        ok, why = send_allowed(cfg, room_id, rtype)
+        if not ok:
+            return {"success": False, "native_pc": True, "error": why}
+        if rtype not in ((cfg.get("heart_reaction") or {}).get("room_types") or ["DirectChat"]):
+            return {"success": False, "native_pc": True, "error": "room not allowed for heart"}
+        src = self.query("SELECT message, type, user_id FROM chat_logs WHERE chat_id = ? AND (_id = ? OR id = ?) LIMIT 1",
+                         [room_id, tid, tid])
+        text = (src[0]["message"] or "") if src else ""
+        if not src or src[0]["type"] not in (1, 26) or not text.strip() or str(src[0]["user_id"]) == str(self.my_id):
+            return {"success": False, "native_pc": True, "error": "heart target not usable"}
+        if self.query("SELECT COUNT(*) n FROM chat_logs WHERE chat_id = ? AND _id > ?", [room_id, tid])[0]["n"]:
+            return {"success": False, "native_pc": True, "error": "newer message exists"}
+        title = ""
+        try:
+            for m in json.loads(row[0]["meta"] or "[]"):
+                if m.get("type") == 3 and m.get("content"):
+                    title = m["content"]
+        except ValueError:
+            pass
+        if not title:
+            title = next((r["name"] for r in self.acct.rooms if r["id"] == room_id), room_id)
+
+        def guard():
+            return self.query("SELECT MAX(_id) m FROM chat_logs WHERE chat_id = ?", [room_id])[0]["m"]
+        try:
+            if reactor is None:
+                import pc_kakao_react as PR
+                r = PR.react(title, text, room_type=rtype, guard=guard)
+            else:
+                r = reactor(title, text, rtype, guard)
+            self.log(f"하트 room={room_id[-5:]} ok={r.get('ok')} skipped={r.get('skipped')} err={r.get('error')}")
+            return {"success": bool(r.get("ok")), "native_pc": True, "error": r.get("error"), "skipped": r.get("skipped")}
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "native_pc": True, "error": f"pc_react: {type(e).__name__}"}
+
 
 def make_server(ni: NativeIris, port: int = 3001, verbose=print) -> ThreadingHTTPServer:
     class H(BaseHTTPRequestHandler):
@@ -297,6 +339,8 @@ def make_server(ni: NativeIris, port: int = 3001, verbose=print) -> ThreadingHTT
                     self._send({"error": str(e)[:200]}, 400)
             elif path == "/reply":
                 self._send(ni.reply(body))
+            elif path == "/react":
+                self._send(ni.react(body))
             elif path == "/config/endpoint":
                 ni.endpoint = body.get("endpoint") or ni.endpoint
                 verbose(f"웹훅 등록 → {ni.endpoint}")

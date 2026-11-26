@@ -228,6 +228,29 @@ def test_shim_query_poll_and_send_lock(fake_acc, tmp_path, monkeypatch):
     assert sent == [("나와의 채팅", "메모"), ("스터디방", "y")]
 
 
+def test_shim_react_rules(fake_acc, tmp_path, monkeypatch):
+    import iris_native as IN
+    ni = IN.NativeIris(_acct(fake_acc), verbose=lambda *x: None)
+    ni.poll()
+    c = sqlite3.connect(fake_acc / "chat_data" / "chatLogs_11.edb")
+    c.execute("INSERT INTO chatLogs VALUES(4, ?, 1, '넵 감사합니다~', '', ?, 0, 0)", (FRIEND, NOW + 99))
+    c.commit(); c.close()
+    ni.poll()
+    calls = []
+    fake = lambda title, text, rtype, guard: calls.append((title, text, rtype, guard())) or {"ok": True}  # noqa: E731
+    cfg = tmp_path / "config.json"
+    monkeypatch.setattr(IN, "CONFIG", cfg)
+    cfg.write_text(json.dumps({"native_send_only_memo": False}), encoding="utf-8")
+    r = ni.react({"room": "11", "targetId": "4"}, reactor=fake)
+    assert r["success"] is True and calls == [("홍길동", "넵 감사합니다~", "DirectChat", 4)]
+    assert ni.react({"room": "11", "targetId": "1"}, reactor=fake)["error"] == "newer message exists"
+    assert ni.react({"room": "11", "targetId": "2"}, reactor=fake)["success"] is False
+    assert ni.react({"room": "22", "targetId": "1"}, reactor=fake)["error"] == "room not allowed for heart"
+    cfg.write_text(json.dumps({}), encoding="utf-8")
+    assert ni.react({"room": "11", "targetId": "4"}, reactor=fake)["error"].startswith("test lock")
+    assert len(calls) == 1
+
+
 def test_send_allowed_rules():
     import iris_native as IN
     assert IN.send_allowed({}, "1", "DirectChat")[0] is False

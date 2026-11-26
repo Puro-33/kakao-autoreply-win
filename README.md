@@ -158,6 +158,9 @@ powershell -ExecutionPolicy Bypass -File start_native.ps1       # 꺼지면 다�
 | `reply_delay_sec`, `room_cooldown_sec`, `max_replies_per_hour` | 지연과 상한 |
 | `ontology_mode`, `dm_lookup` | 상대 카드, 내 카톡에서 근거 찾기 |
 | `briefing_enabled` | 예약 브리핑(기본 꺼짐 — 봇은 먼저 보내지 않는다) |
+| `heart_reaction` | 마무리 인사·감사·확인뿐인 짧은 갠톡 글에 글 대신 하트(기본 꺼짐) |
+| `group_opinion` | 단톡에서 방 전체에 의견을 묻는 글을 부름으로 보고 답 여부 판단(기본 꺼짐) |
+| `catchup_batch_gap_min`, `catchup_hard_max_age_h`, `catchup_owner_max_age_min` | 꺼져 있던 동안 쌓인 글 보충 범위: 방마다 마지막 묶음만, 이 시간을 넘긴 글은 건너뜀 |
 | `calendar_mode` | 캘린더 연동(기본 꺼짐) |
 
 갠톡 범주(`dm_categories.json`): 가족(자동응답 안 함)·친구·학교·교수·업무·외부·거래·서비스·기타·미분류.
@@ -201,6 +204,7 @@ powershell -ExecutionPolicy Bypass -File start_native.ps1       # 꺼지면 다�
 - 스레드(오픈채팅 댓글) 답장은 `pc_kakao_thread.py`가 창 메시지만으로 답글 모드를 켠 뒤 보냅니다. 답글 모드 전환까지만 실측했고,
   실제 전송은 아직 확인하지 못했습니다. 좌표는 26.9.2 영어 UI 기준이며 클립보드를 잠깐 씁니다.
   버튼·메뉴 자리와 조작 방법은 [docs/kakaotalk-pc-manual.md](docs/kakaotalk-pc-manual.md)에 있습니다.
+- 하트 반응(`pc_kakao_react.py`)은 갠톡 상대 글 1건에서 실제로 달리는 것까지 확인했습니다. 단톡·오픈채팅의 메뉴 높이는 스레드 답장용 값(282)을 그대로 쓰며 반응은 확인하지 못했습니다.
 - 사진 보내기는 PC 창 경로로 하지 않습니다(받기만).
 - 프롬프트는 한국어 전용, 시간은 KST(UTC+9) 고정, Windows 전용입니다.
 - 온톨로지(상대 카드)는 주인의 실제 대화로 만들어지므로 처음에는 비어 있습니다. 말투 학습 기능은 없습니다(0.2.0에서 뺌).
